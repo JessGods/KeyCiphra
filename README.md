@@ -18,6 +18,8 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Clipboard temporário limpo ao expirar ou bloquear o cofre.
 - Backup SQLite automático a cada 24 horas e backup manual pela interface.
 - Validação de integridade e retenção dos 10 backups mais recentes.
+- Exportação portátil e restauração autenticada para uso em outro computador.
+- Backup de segurança automático antes de substituir o cofre em uma restauração.
 - Testes de persistência após reabertura, CRUD, adulteração e ausência de
   plaintext sensível no arquivo.
 
@@ -113,6 +115,17 @@ O primeiro desbloqueio cria um backup automático. Depois disso, o intervalo é
 de 24 horas. O botão **Backup** permite criar um snapshot manual. Somente os 10
 mais recentes são preservados. A pasta inteira é ignorada pelo Git.
 
+O menu **Transferir** exporta uma cópia consistente para um arquivo `.db` e
+importa cofres criados pelo KeyCiphra. Na restauração, a senha mestra do arquivo
+é exigida e todas as credenciais são autenticadas antes de qualquer alteração.
+O cofre em uso é preservado automaticamente em `backups/`; após a troca, o
+aplicativo bloqueia a sessão e solicita a senha do cofre restaurado.
+
+O arquivo exportado pode ser transportado por mídia removível ou armazenamento
+em nuvem, mas não deve ser aberto simultaneamente por dois computadores. A
+transferência não cria uma versão em plaintext e a senha mestra deve ser
+compartilhada por um canal separado — ou, preferencialmente, não compartilhada.
+
 ## Modelo de segurança
 
 O objetivo inicial é proteger credenciais quando o arquivo do cofre ou um
@@ -150,6 +163,6 @@ permitir atualização futura.
 2. Cofre, SQLite e Repository Pattern (concluído).
 3. Busca local após desbloqueio e gerador de senhas (concluído).
 4. Interface PySide6 (MVP concluído).
-5. Bloqueio automático, clipboard temporário e backup (concluído); logs
-   sanitizados ainda pendentes.
+5. Bloqueio automático, clipboard temporário, backup e transferência de cofre
+   (concluído); logs sanitizados ainda pendentes.
 6. Hardening, análise estática, dependências e revisão de segurança.

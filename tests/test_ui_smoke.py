@@ -9,7 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QFileDialog,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+)
 
 from app.models.credential import Credential  # noqa: E402
 from app.repositories.credential_repository import CredentialRepository  # noqa: E402
@@ -22,6 +28,7 @@ from app.ui.login_window import LoginWindow  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
 from app.ui.password_generator_dialog import PasswordGeneratorDialog  # noqa: E402
+from app.ui.vault_restore_dialog import VaultRestoreDialog  # noqa: E402
 from app.ui.window_chrome import WindowChrome  # noqa: E402
 
 
@@ -66,6 +73,7 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         detail="Confira sua frase-senha e tente novamente.",
         parent=login,
     )
+    restore_dialog = VaultRestoreDialog(database_path, main)
 
     assert login.windowTitle() == "KeyCiphra — Cofre local"
     assert main.initialize()
@@ -74,9 +82,11 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert main.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert credential_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert generator_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert restore_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert login.findChild(WindowChrome) is not None
     assert main.findChild(WindowChrome) is not None
     assert credential_dialog.findChild(WindowChrome) is not None
+    assert restore_dialog.findChild(WindowChrome) is not None
     assert len(generator_dialog.password) == 20
     actions = main._table.cellWidget(0, 3)
     assert actions is not None
@@ -95,12 +105,25 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert credential_dialog.findChild(QScrollArea, "formScroll") is not None
     assert message_dialog.objectName() == "messageDialog"
     assert message_dialog.minimumWidth() == 390
+    restore_password = restore_dialog.findChild(QLineEdit, "restorePassword")
+    assert restore_password is not None
+    assert restore_password.echoMode() == QLineEdit.EchoMode.Password
 
     backup_button = next(
         button for button in main.findChildren(QPushButton) if button.text() == "Backup"
     )
     backup_button.click()
     assert list((tmp_path / "backups").glob("vault_*.db"))
+    transfer_button = next(
+        button for button in main.findChildren(QPushButton) if button.text() == "Transferir"
+    )
+    assert transfer_button.menu() is not None
+    assert {action.text() for action in transfer_button.menu().actions()} == {
+        "Exportar cofre…",
+        "Importar/Restaurar cofre…",
+    }
+    file_dialog = main._file_dialog("Selecionar cofre")
+    assert file_dialog.testOption(QFileDialog.Option.DontUseNativeDialog)
 
     clipboard = application.clipboard()
     main._clipboard.copy_secret("segredo-temporario-ficticio")
@@ -110,6 +133,8 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert not session.is_unlocked
 
     message_dialog.close()
+    file_dialog.close()
+    restore_dialog.close()
     generator_dialog.close()
     credential_dialog.close()
     main.close()

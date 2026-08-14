@@ -10,6 +10,9 @@ from argon2.low_level import ARGON2_VERSION, Type, hash_secret_raw
 
 SALT_BYTES = 16
 AES_256_KEY_BYTES = 32
+MAX_TIME_COST = 10
+MAX_MEMORY_COST_KIB = 256 * 1_024
+MAX_PARALLELISM = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,10 +28,16 @@ class KDFParameters:
     def __post_init__(self) -> None:
         if self.time_cost < 1:
             raise ValueError("time_cost deve ser positivo.")
-        if self.memory_cost_kib < 8 * self.parallelism:
-            raise ValueError("memory_cost_kib é insuficiente para o parallelism escolhido.")
+        if self.time_cost > MAX_TIME_COST:
+            raise ValueError("time_cost excede o limite seguro suportado.")
         if self.parallelism < 1:
             raise ValueError("parallelism deve ser positivo.")
+        if self.parallelism > MAX_PARALLELISM:
+            raise ValueError("parallelism excede o limite seguro suportado.")
+        if self.memory_cost_kib < 8 * self.parallelism:
+            raise ValueError("memory_cost_kib é insuficiente para o parallelism escolhido.")
+        if self.memory_cost_kib > MAX_MEMORY_COST_KIB:
+            raise ValueError("memory_cost_kib excede o limite seguro suportado.")
         if self.hash_length != AES_256_KEY_BYTES:
             raise ValueError("A chave derivada deve ter 32 bytes para AES-256.")
 

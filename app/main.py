@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import signal
 import sys
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.repositories.credential_repository import CredentialRepository
@@ -20,6 +22,26 @@ from app.utils.paths import BACKUP_DIRECTORY, DEFAULT_VAULT_PATH
 
 
 AUTO_LOCK_SECONDS = 5 * 60
+SIGNAL_POLL_INTERVAL_MS = 200
+
+
+def install_graceful_interrupt_handler(application: QApplication) -> QTimer:
+    """Converte Ctrl+C em encerramento normal do loop Qt, sem traceback."""
+
+    def request_shutdown(signum: int, frame: object) -> None:
+        del signum, frame
+        application.quit()
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, request_shutdown)
+
+    # Mantém o interpretador recebendo sinais mesmo quando o Qt está ocioso.
+    poller = QTimer(application)
+    poller.setInterval(SIGNAL_POLL_INTERVAL_MS)
+    poller.timeout.connect(lambda: None)
+    poller.start()
+    return poller
 
 
 APP_STYLESHEET = """
@@ -177,6 +199,21 @@ QLabel#sessionNotice {
     border-radius: 8px;
     padding: 9px;
 }
+QLabel#selectedVaultPath {
+    color: #bfdbfe;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px;
+}
+QLabel#restoreSafetyNote {
+    color: #a7f3d0;
+    background-color: #0f2924;
+    border: 1px solid #166534;
+    border-radius: 8px;
+    padding: 10px;
+}
+QLabel#inlineError { color: #fca5a5; }
 QLineEdit, QTextEdit, QSpinBox, QTableWidget {
     background-color: #0f172a;
     border: 1px solid #374151;
@@ -207,6 +244,30 @@ QPushButton#destructiveButton:hover { background-color: #dc2626; border-color: #
 QPushButton#compactActionButton { padding: 4px 9px; border-radius: 6px; }
 QPushButton[danger="true"] { color: #fecaca; background-color: #7f1d1d; }
 QPushButton[danger="true"]:hover { background-color: #991b1b; border-color: #ef4444; }
+QMenu {
+    color: #e5e7eb;
+    background-color: #111b2e;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 6px;
+}
+QMenu::item { padding: 9px 28px 9px 10px; border-radius: 6px; }
+QMenu::item:selected { background-color: #2563eb; color: #ffffff; }
+QFileDialog { background-color: #0f172a; }
+QFileDialog QListView, QFileDialog QTreeView {
+    color: #e5e7eb;
+    background-color: #0b1220;
+    border: 1px solid #334155;
+    selection-background-color: #2563eb;
+    selection-color: #ffffff;
+}
+QFileDialog QComboBox {
+    color: #e5e7eb;
+    background-color: #111b2e;
+    border: 1px solid #374151;
+    border-radius: 7px;
+    padding: 7px;
+}
 QHeaderView::section {
     background-color: #1f2937;
     color: #d1d5db;
@@ -288,6 +349,7 @@ class ApplicationController:
         self._pending_login_notice: str | None = None
         self._login_window: LoginWindow | None = None
         self._main_window: MainWindow | None = None
+        self._shutting_down = False
 
     def start(self) -> None:
         self.show_login()
@@ -315,6 +377,7 @@ class ApplicationController:
             self._backup_service,
         )
         self._main_window.lock_requested.connect(self.show_login)
+        self._main_window.vault_restored.connect(self._handle_vault_restored)
         if not self._main_window.initialize():
             self._main_window = None
             self.show_login()
@@ -341,6 +404,26 @@ class ApplicationController:
         self._pending_login_notice = "Cofre bloqueado automaticamente após 5 minutos sem atividade."
         self._main_window.lock_vault()
 
+    def _handle_vault_restored(self, notice: str) -> None:
+        self._pending_login_notice = notice
+        self.show_login()
+
+    def shutdown(self) -> None:
+        """Descarta segredos transitórios antes de encerrar o processo."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._auto_lock.stop()
+        self._clipboard.clear_secret()
+        if self._main_window is not None:
+            window = self._main_window
+            self._main_window = None
+            window.close()
+        if self._login_window is not None:
+            window = self._login_window
+            self._login_window = None
+            window.close()
+
 
 def main() -> int:
     application = QApplication(sys.argv)
@@ -350,8 +433,17 @@ def main() -> int:
     application.setStyleSheet(APP_STYLESHEET)
     application.setWindowIcon(lucide_icon("shield-check", "#60a5fa", 32))
     controller = ApplicationController(application)
+    interrupt_poller = install_graceful_interrupt_handler(application)
+    application.aboutToQuit.connect(controller.shutdown)
     controller.start()
-    return application.exec()
+    try:
+        return application.exec()
+    except KeyboardInterrupt:
+        # Proteção adicional para interrupções recebidas antes do handler do Qt.
+        controller.shutdown()
+        return 130
+    finally:
+        interrupt_poller.stop()
 
 
 if __name__ == "__main__":

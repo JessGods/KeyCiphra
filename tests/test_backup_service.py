@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,7 +12,11 @@ import pytest
 from app.models.credential import Credential
 from app.repositories.credential_repository import CredentialRepository
 from app.security.kdf import KDFParameters
-from app.services.backup_service import BackupError, BackupService
+from app.services.backup_service import (
+    BackupAuthenticationError,
+    BackupError,
+    BackupService,
+)
 from app.services.vault_service import VaultService
 
 
@@ -83,3 +88,72 @@ def test_invalid_database_fails_securely(tmp_path: Path) -> None:
         BackupService(vault_path, tmp_path / "backups").create_backup()
 
     assert not list((tmp_path / "backups").glob("*.tmp"))
+
+
+def test_exported_vault_can_be_opened_elsewhere(tmp_path: Path) -> None:
+    vault_path = tmp_path / "data" / "vault.db"
+    session = VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    credential = Credential.create(title="Conta exportada", password="segredo-ficticio")
+    CredentialRepository(vault_path, session).add(credential)
+    destination = tmp_path / "transferencia" / "keyciphra.db"
+
+    exported = BackupService(vault_path, tmp_path / "backups").export_backup(destination)
+
+    imported_session = VaultService(exported).unlock(MASTER_PASSWORD)
+    assert CredentialRepository(exported, imported_session).get(credential.id) == credential
+
+
+def test_restore_authenticates_and_preserves_previous_vault(tmp_path: Path) -> None:
+    vault_path = tmp_path / "data" / "vault.db"
+    current_session = VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    current = Credential.create(title="Cofre atual", password="atual-ficticia")
+    CredentialRepository(vault_path, current_session).add(current)
+
+    imported_path = tmp_path / "received" / "other-vault.db"
+    imported_session = VaultService(imported_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    imported = Credential.create(title="Cofre importado", password="importada-ficticia")
+    CredentialRepository(imported_path, imported_session).add(imported)
+
+    service = BackupService(vault_path, tmp_path / "backups")
+    safety_backup = service.restore_backup(imported_path, MASTER_PASSWORD)
+
+    restored_session = VaultService(vault_path).unlock(MASTER_PASSWORD)
+    assert CredentialRepository(vault_path, restored_session).get(imported.id) == imported
+    safety_session = VaultService(safety_backup).unlock(MASTER_PASSWORD)
+    assert CredentialRepository(safety_backup, safety_session).get(current.id) == current
+
+
+def test_restore_rejects_wrong_password_without_changing_current_vault(tmp_path: Path) -> None:
+    vault_path = tmp_path / "data" / "vault.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    imported_path = tmp_path / "received.db"
+    VaultService(imported_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    original_bytes = vault_path.read_bytes()
+    service = BackupService(vault_path, tmp_path / "backups")
+
+    with pytest.raises(BackupAuthenticationError):
+        service.restore_backup(imported_path, "senha-mestra-incorreta")
+
+    assert vault_path.read_bytes() == original_bytes
+    assert service.list_backups() == []
+
+
+def test_restore_rejects_tampered_credential(tmp_path: Path) -> None:
+    vault_path = tmp_path / "data" / "vault.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    imported_path = tmp_path / "received.db"
+    imported_session = VaultService(imported_path).create(
+        MASTER_PASSWORD,
+        FAST_TEST_PARAMETERS,
+    )
+    CredentialRepository(imported_path, imported_session).add(
+        Credential.create(title="Registro adulterado", password="ficticia")
+    )
+    with sqlite3.connect(imported_path) as connection:
+        connection.execute("UPDATE credentials SET payload_ciphertext = zeroblob(32)")
+
+    with pytest.raises(BackupAuthenticationError):
+        BackupService(vault_path, tmp_path / "backups").restore_backup(
+            imported_path,
+            MASTER_PASSWORD,
+        )

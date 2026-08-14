@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import QSize, QStandardPaths, Qt, Signal
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -22,11 +28,16 @@ from PySide6.QtWidgets import (
 from app.models.credential import Credential
 from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
 from app.security.session import VaultSession
-from app.services.backup_service import BackupError, BackupService
+from app.services.backup_service import (
+    BackupAuthenticationError,
+    BackupError,
+    BackupService,
+)
 from app.services.clipboard_service import ClipboardService
 from app.ui.credential_dialog import CredentialDialog
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
+from app.ui.vault_restore_dialog import VaultRestoreDialog
 from app.ui.window_chrome import install_window_chrome
 
 
@@ -34,6 +45,7 @@ class MainWindow(QMainWindow):
     """Lista e altera credenciais sem acessar SQLite diretamente."""
 
     lock_requested = Signal()
+    vault_restored = Signal(str)
 
     def __init__(
         self,
@@ -90,6 +102,27 @@ class MainWindow(QMainWindow):
             backup_button.setToolTip("Criar agora um snapshot criptografado do cofre")
             backup_button.clicked.connect(self._create_backup)
             header.addWidget(backup_button)
+
+            transfer_button = QPushButton("Transferir")
+            self._configure_button(transfer_button, "restore")
+            transfer_button.setToolTip("Exportar ou importar um cofre criptografado")
+            transfer_menu = QMenu(transfer_button)
+            export_action = QAction(
+                lucide_icon("database-backup", "#dbeafe", 18),
+                "Exportar cofre…",
+                transfer_menu,
+            )
+            export_action.triggered.connect(self._export_vault)
+            transfer_menu.addAction(export_action)
+            import_action = QAction(
+                lucide_icon("restore", "#dbeafe", 18),
+                "Importar/Restaurar cofre…",
+                transfer_menu,
+            )
+            import_action.triggered.connect(self._import_vault)
+            transfer_menu.addAction(import_action)
+            transfer_button.setMenu(transfer_menu)
+            header.addWidget(transfer_button)
         lock_button = QPushButton("Bloquear")
         self._configure_button(lock_button, "lock")
         lock_button.clicked.connect(self._lock)
@@ -305,6 +338,108 @@ class MainWindow(QMainWindow):
 
     def notify_backup_created(self, filename: str) -> None:
         self.statusBar().showMessage(f"Backup criptografado criado: {filename}", 7_000)
+
+    def _export_vault(self) -> None:
+        if self._backup_service is None:
+            return
+        destination = self._choose_export_destination()
+        if destination is None:
+            return
+        if destination.exists() and not MessageDialog.confirm(
+            self,
+            f'Já existe um arquivo chamado “{destination.name}”. Deseja substituí-lo?',
+            title="Substituir exportação",
+            confirm_text="Substituir",
+        ):
+            return
+        try:
+            exported = self._backup_service.export_backup(destination)
+            self.statusBar().showMessage(
+                f"Cofre criptografado exportado: {exported}",
+                9_000,
+            )
+        except BackupError:
+            MessageDialog.error(
+                self,
+                "Não foi possível exportar uma cópia íntegra do cofre.",
+                title="Falha na exportação",
+            )
+
+    def _import_vault(self) -> None:
+        if self._backup_service is None:
+            return
+        source = self._choose_import_source()
+        if source is None:
+            return
+        dialog = VaultRestoreDialog(source, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            safety_backup = self._backup_service.restore_backup(
+                source,
+                dialog.master_password,
+            )
+        except BackupAuthenticationError:
+            MessageDialog.error(
+                self,
+                "A senha está incorreta ou o arquivo contém dados adulterados.",
+                title="Cofre não autenticado",
+                detail="O cofre atual permaneceu intacto.",
+            )
+            return
+        except BackupError:
+            MessageDialog.error(
+                self,
+                "Não foi possível restaurar este arquivo com segurança.",
+                title="Falha na restauração",
+                detail="O cofre atual permaneceu intacto.",
+            )
+            return
+
+        self._credentials.clear()
+        self._table.clearContents()
+        self._clipboard.clear_secret()
+        self._session.lock()
+        self.vault_restored.emit(
+            f"Cofre restaurado com sucesso. Backup anterior preservado como {safety_backup.name}."
+        )
+
+    def _choose_export_destination(self) -> Path | None:
+        documents = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DocumentsLocation
+        )
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        suggested = Path(documents or str(Path.home())) / f"keyciphra_{timestamp}.db"
+        dialog = self._file_dialog("Exportar cofre criptografado")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
+        dialog.setDefaultSuffix("db")
+        dialog.selectFile(str(suggested))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        destination = Path(dialog.selectedFiles()[0])
+        return destination if destination.suffix.lower() == ".db" else destination.with_suffix(".db")
+
+    def _choose_import_source(self) -> Path | None:
+        documents = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DocumentsLocation
+        )
+        dialog = self._file_dialog("Importar cofre criptografado")
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if documents:
+            dialog.setDirectory(documents)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return Path(dialog.selectedFiles()[0])
+
+    def _file_dialog(self, title: str) -> QFileDialog:
+        dialog = QFileDialog(self, title)
+        dialog.setObjectName("fileDialog")
+        dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dialog.setNameFilter("Cofre KeyCiphra (*.db);;Todos os arquivos (*)")
+        dialog.resize(820, 560)
+        return dialog
 
     def _lock(self) -> None:
         self._credentials.clear()

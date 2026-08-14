@@ -54,3 +54,16 @@ def test_rejects_empty_master_password() -> None:
 def test_rejects_short_salt() -> None:
     with pytest.raises(ValueError):
         derive_key("frase fictícia", b"salt curto", FAST_TEST_PARAMETERS)
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    (
+        {"time_cost": 11},
+        {"memory_cost_kib": (256 * 1_024) + 1},
+        {"parallelism": 17},
+    ),
+)
+def test_rejects_untrusted_resource_exhaustion_parameters(parameters: dict) -> None:
+    with pytest.raises(ValueError):
+        KDFParameters(**parameters)
