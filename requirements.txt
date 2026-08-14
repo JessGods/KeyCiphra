@@ -1,0 +1,4 @@
+argon2-cffi
+cryptography
+PySide6
+pytest

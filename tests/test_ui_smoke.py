@@ -1,0 +1,145 @@
+"""Smoke test das janelas sem abrir uma interface visível."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from PySide6.QtGui import QFont  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QApplication, QPushButton, QScrollArea  # noqa: E402
+
+from app.models.credential import Credential  # noqa: E402
+from app.repositories.credential_repository import CredentialRepository  # noqa: E402
+from app.security.kdf import KDFParameters  # noqa: E402
+from app.services.backup_service import BackupService  # noqa: E402
+from app.services.clipboard_service import ClipboardService  # noqa: E402
+from app.services.vault_service import VaultService  # noqa: E402
+from app.ui.credential_dialog import CredentialDialog  # noqa: E402
+from app.ui.login_window import LoginWindow  # noqa: E402
+from app.ui.main_window import MainWindow  # noqa: E402
+from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
+from app.ui.password_generator_dialog import PasswordGeneratorDialog  # noqa: E402
+from app.ui.window_chrome import WindowChrome  # noqa: E402
+
+
+FAST_TEST_PARAMETERS = KDFParameters(
+    time_cost=1,
+    memory_cost_kib=8 * 1_024,
+    parallelism=1,
+)
+
+
+def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    database_path = tmp_path / "vault.db"
+    vault_service = VaultService(database_path)
+
+    login = LoginWindow(vault_service)
+    session = vault_service.create(
+        "frase-mestra-ficticia-longa",
+        FAST_TEST_PARAMETERS,
+    )
+    repository = CredentialRepository(database_path, session)
+    repository.add(
+        Credential.create(
+            title="Serviço fictício",
+            username="teste@example.invalid",
+            password="segredo-fictício",
+            category="Teste",
+        )
+    )
+    main = MainWindow(
+        repository,
+        session,
+        ClipboardService(application.clipboard()),
+        BackupService(database_path, tmp_path / "backups"),
+    )
+    credential_dialog = CredentialDialog(parent=main)
+    generator_dialog = PasswordGeneratorDialog(credential_dialog)
+    message_dialog = MessageDialog(
+        "Não foi possível desbloquear o cofre.",
+        kind=MessageKind.WARNING,
+        title="Cofre bloqueado",
+        detail="Confira sua frase-senha e tente novamente.",
+        parent=login,
+    )
+
+    assert login.windowTitle() == "KeyCiphra — Cofre local"
+    assert main.initialize()
+    assert main.windowTitle() == "KeyCiphra — Cofre desbloqueado"
+    assert login.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert main.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert credential_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert generator_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert login.findChild(WindowChrome) is not None
+    assert main.findChild(WindowChrome) is not None
+    assert credential_dialog.findChild(WindowChrome) is not None
+    assert len(generator_dialog.password) == 20
+    actions = main._table.cellWidget(0, 3)
+    assert actions is not None
+    assert main._table.columnWidth(3) >= actions.minimumWidth()
+    action_buttons = actions.findChildren(QPushButton)
+    assert action_buttons
+    assert main._table.rowHeight(0) >= max(button.height() for button in action_buttons) + 10
+    assert all(button.text() == "" for button in action_buttons)
+    assert all(button.width() == button.height() for button in action_buttons)
+    assert all(button.width() == 26 for button in action_buttons)
+    assert {button.accessibleName() for button in action_buttons} == {
+        "Copiar senha",
+        "Editar credencial",
+        "Excluir credencial",
+    }
+    assert credential_dialog.findChild(QScrollArea, "formScroll") is not None
+    assert message_dialog.objectName() == "messageDialog"
+    assert message_dialog.minimumWidth() == 390
+
+    backup_button = next(
+        button for button in main.findChildren(QPushButton) if button.text() == "Backup"
+    )
+    backup_button.click()
+    assert list((tmp_path / "backups").glob("vault_*.db"))
+
+    clipboard = application.clipboard()
+    main._clipboard.copy_secret("segredo-temporario-ficticio")
+    assert clipboard.text() == "segredo-temporario-ficticio"
+    main.lock_vault()
+    assert clipboard.text() == ""
+    assert not session.is_unlocked
+
+    message_dialog.close()
+    generator_dialog.close()
+    credential_dialog.close()
+    main.close()
+    login.close()
+
+
+def test_action_column_expands_with_large_font(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    original_font = application.font()
+    large_font = QFont(original_font)
+    large_font.setPointSize(18)
+    application.setFont(large_font)
+
+    database_path = tmp_path / "large-font-vault.db"
+    vault = VaultService(database_path)
+    session = vault.create("frase-mestra-ficticia-longa", FAST_TEST_PARAMETERS)
+    repository = CredentialRepository(database_path, session)
+    repository.add(Credential.create(title="Teste", password="segredo-fictício"))
+    main = MainWindow(
+        repository,
+        session,
+        ClipboardService(application.clipboard()),
+    )
+
+    try:
+        assert main.initialize()
+        actions = main._table.cellWidget(0, 3)
+        assert actions is not None
+        assert main._table.columnWidth(3) >= actions.minimumWidth()
+        assert main.minimumWidth() == 680
+    finally:
+        main.close()
+        application.setFont(original_font)

@@ -1,0 +1,332 @@
+"""Painel principal do cofre desbloqueado."""
+
+from __future__ import annotations
+
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.models.credential import Credential
+from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
+from app.security.session import VaultSession
+from app.services.backup_service import BackupError, BackupService
+from app.services.clipboard_service import ClipboardService
+from app.ui.credential_dialog import CredentialDialog
+from app.ui.icons import lucide_icon
+from app.ui.message_dialog import MessageDialog
+from app.ui.window_chrome import install_window_chrome
+
+
+class MainWindow(QMainWindow):
+    """Lista e altera credenciais sem acessar SQLite diretamente."""
+
+    lock_requested = Signal()
+
+    def __init__(
+        self,
+        repository: CredentialRepository,
+        session: VaultSession,
+        clipboard_service: ClipboardService,
+        backup_service: BackupService | None = None,
+    ) -> None:
+        super().__init__()
+        self._repository = repository
+        self._session = session
+        self._clipboard = clipboard_service
+        self._backup_service = backup_service
+        self._credentials: list[Credential] = []
+        self._action_column_width = 0
+
+        self._search = QLineEdit()
+        self._table = QTableWidget(0, 4)
+        self._status = QLabel()
+
+        self.setWindowTitle("KeyCiphra — Cofre desbloqueado")
+        self.setMinimumSize(680, 480)
+        self.resize(1040, 680)
+        self._build_ui()
+
+    def initialize(self) -> bool:
+        """Carrega o cofre após todos os sinais da janela estarem conectados."""
+        return self._load_credentials()
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        root.setObjectName("mainRoot")
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(18, 8, 18, 18)
+        layout.setSpacing(16)
+        install_window_chrome(
+            self,
+            layout,
+            "KeyCiphra — Cofre desbloqueado",
+            allow_maximize=True,
+        )
+
+        header = QHBoxLayout()
+        shield = QLabel()
+        shield.setPixmap(lucide_icon("shield-check", "#60a5fa", 30).pixmap(30, 30))
+        header.addWidget(shield)
+        title = QLabel("KEYCIPHRA")
+        title.setObjectName("brand")
+        header.addWidget(title)
+        header.addStretch()
+        if self._backup_service is not None:
+            backup_button = QPushButton("Backup")
+            self._configure_button(backup_button, "database-backup")
+            backup_button.setToolTip("Criar agora um snapshot criptografado do cofre")
+            backup_button.clicked.connect(self._create_backup)
+            header.addWidget(backup_button)
+        lock_button = QPushButton("Bloquear")
+        self._configure_button(lock_button, "lock")
+        lock_button.clicked.connect(self._lock)
+        header.addWidget(lock_button)
+        layout.addLayout(header)
+
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(12)
+        self._search.setPlaceholderText("Buscar por título, usuário ou categoria...")
+        self._search.setClearButtonEnabled(True)
+        self._search.setMinimumHeight(max(42, self._search.fontMetrics().height() + 24))
+        self._search.addAction(
+            lucide_icon("search", "#94a3b8", 18),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
+        self._search.textChanged.connect(self._apply_filter)
+        toolbar.addWidget(self._search, 1)
+        add_button = QPushButton("Nova credencial")
+        add_button.setObjectName("primaryButton")
+        self._configure_button(add_button, "plus")
+        add_button.clicked.connect(self._add)
+        toolbar.addWidget(add_button)
+        layout.addLayout(toolbar)
+
+        self._table.setHorizontalHeaderLabels(("Título", "Usuário", "Categoria", "Ações"))
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.verticalHeader().setVisible(False)
+        header_view = self._table.horizontalHeader()
+        header_view.setMinimumSectionSize(90)
+        header_view.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header_view.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header_view.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header_view.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self._set_default_action_width()
+        layout.addWidget(self._table, 1)
+
+        self._status.setObjectName("muted")
+        layout.addWidget(self._status)
+        self._clipboard.cleared.connect(
+            lambda: self.statusBar().showMessage("Clipboard limpo automaticamente.", 4_000)
+        )
+        self.setCentralWidget(root)
+
+    def _set_default_action_width(self) -> None:
+        button_size = 26
+        self._action_column_width = (button_size * 3) + 36
+        self._table.setColumnWidth(3, self._action_column_width)
+
+    def _configure_button(
+        self,
+        button: QPushButton,
+        icon_name: str,
+        *,
+        compact: bool = False,
+    ) -> None:
+        icon_size = max(17, button.fontMetrics().height())
+        button.setIcon(lucide_icon(icon_name, "#e5e7eb", icon_size))
+        button.setIconSize(QSize(icon_size, icon_size))
+        text_width = button.fontMetrics().horizontalAdvance(button.text())
+        horizontal_space = 28 if compact else 38
+        button.setMinimumWidth(text_width + icon_size + horizontal_space)
+        button_height = max(28, button.fontMetrics().height() + (14 if compact else 20))
+        if compact:
+            button.setObjectName("compactActionButton")
+            square_size = 26
+            button.setFixedSize(square_size, square_size)
+            button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        else:
+            button.setMinimumHeight(button_height)
+            button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+
+    def _load_credentials(self) -> bool:
+        try:
+            self._credentials = self._repository.list_all()
+        except RepositoryIntegrityError:
+            MessageDialog.error(
+                self,
+                "Uma credencial armazenada não pôde ser autenticada. O cofre será bloqueado.",
+                title="Falha de integridade",
+            )
+            self._credentials.clear()
+            self._session.lock()
+            return False
+        self._apply_filter()
+        return True
+
+    def _apply_filter(self) -> None:
+        query = self._search.text().strip().casefold()
+        filtered = [
+            credential
+            for credential in self._credentials
+            if not query
+            or query in credential.title.casefold()
+            or query in credential.username.casefold()
+            or query in credential.category.casefold()
+        ]
+        self._populate_table(filtered)
+        total = len(self._credentials)
+        self._status.setText(f"{len(filtered)} de {total} credencial(is)")
+
+    def _populate_table(self, credentials: list[Credential]) -> None:
+        self._table.setRowCount(len(credentials))
+        largest_actions_width = self._action_column_width
+        for row, credential in enumerate(credentials):
+            title_item = QTableWidgetItem(credential.title)
+            title_item.setData(Qt.ItemDataRole.UserRole, credential.id)
+            self._table.setItem(row, 0, title_item)
+            self._table.setItem(row, 1, QTableWidgetItem(self._mask_username(credential.username)))
+            self._table.setItem(row, 2, QTableWidgetItem(credential.category or "—"))
+
+            actions = QWidget()
+            actions.setObjectName("tableActions")
+            actions_layout = QHBoxLayout(actions)
+            actions_layout.setContentsMargins(7, 5, 7, 5)
+            actions_layout.setSpacing(6)
+            actions_layout.addStretch()
+
+            copy_button = QPushButton()
+            self._configure_button(copy_button, "copy", compact=True)
+            copy_button.setAccessibleName("Copiar senha")
+            copy_button.setToolTip("Copiar senha; o clipboard será limpo em 25 segundos")
+            copy_button.setEnabled(bool(credential.password))
+            copy_button.clicked.connect(lambda checked=False, item=credential: self._copy_password(item))
+            actions_layout.addWidget(copy_button)
+
+            edit_button = QPushButton()
+            self._configure_button(edit_button, "pencil", compact=True)
+            edit_button.setAccessibleName("Editar credencial")
+            edit_button.setToolTip("Editar credencial")
+            edit_button.clicked.connect(lambda checked=False, item=credential: self._edit(item))
+            actions_layout.addWidget(edit_button)
+
+            delete_button = QPushButton()
+            self._configure_button(delete_button, "trash", compact=True)
+            delete_button.setProperty("danger", True)
+            delete_button.setAccessibleName("Excluir credencial")
+            delete_button.setToolTip("Excluir credencial")
+            delete_button.clicked.connect(lambda checked=False, item=credential: self._delete(item))
+            actions_layout.addWidget(delete_button)
+            actions_layout.addStretch()
+
+            required_width = sum(button.minimumWidth() for button in (copy_button, edit_button, delete_button))
+            required_width += actions_layout.spacing() * 4 + 14
+            actions.setMinimumWidth(required_width)
+            largest_actions_width = max(largest_actions_width, required_width)
+            row_height = max(
+                self.fontMetrics().height() + 32,
+                max(button.height() for button in (copy_button, edit_button, delete_button)) + 10,
+            )
+            self._table.setRowHeight(row, row_height)
+            self._table.setCellWidget(row, 3, actions)
+
+        if largest_actions_width != self._action_column_width:
+            self._action_column_width = largest_actions_width
+        self._table.setColumnWidth(3, self._action_column_width)
+
+    def _add(self) -> None:
+        dialog = CredentialDialog(parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._repository.add(dialog.credential())
+            self._load_credentials()
+            self.statusBar().showMessage("Credencial salva com segurança.", 4_000)
+        except Exception:
+            MessageDialog.error(self, "Não foi possível salvar a credencial.")
+
+    def _edit(self, credential: Credential) -> None:
+        dialog = CredentialDialog(credential, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self._repository.update(dialog.credential())
+            self._load_credentials()
+            self.statusBar().showMessage("Credencial atualizada.", 4_000)
+        except Exception:
+            MessageDialog.error(self, "Não foi possível atualizar a credencial.")
+
+    def _delete(self, credential: Credential) -> None:
+        confirmed = MessageDialog.confirm(
+            self,
+            f'Excluir permanentemente “{credential.title}”?',
+            title="Excluir credencial",
+            confirm_text="Excluir",
+        )
+        if not confirmed:
+            return
+        try:
+            self._repository.delete(credential.id)
+            self._load_credentials()
+        except Exception:
+            MessageDialog.error(self, "Não foi possível excluir a credencial.")
+
+    def _copy_password(self, credential: Credential) -> None:
+        self._clipboard.copy_secret(credential.password)
+        self.statusBar().showMessage("Senha copiada; limpeza automática em 25 segundos.", 5_000)
+
+    def _create_backup(self) -> None:
+        if self._backup_service is None:
+            return
+        try:
+            backup = self._backup_service.create_backup()
+            self.notify_backup_created(backup.name)
+        except BackupError:
+            MessageDialog.error(
+                self,
+                "Não foi possível criar um backup íntegro do cofre.",
+                title="Falha no backup",
+            )
+
+    def notify_backup_created(self, filename: str) -> None:
+        self.statusBar().showMessage(f"Backup criptografado criado: {filename}", 7_000)
+
+    def _lock(self) -> None:
+        self._credentials.clear()
+        self._table.clearContents()
+        self._clipboard.clear_secret()
+        self._session.lock()
+        self.lock_requested.emit()
+
+    def lock_vault(self) -> None:
+        """Bloqueia a sessão por solicitação externa, como inatividade."""
+        if self._session.is_unlocked:
+            self._lock()
+
+    @staticmethod
+    def _mask_username(username: str) -> str:
+        if not username:
+            return "—"
+        visible = min(3, len(username))
+        return username[:visible] + "•" * min(8, max(3, len(username) - visible))
+
+    def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        self._credentials.clear()
+        self._clipboard.clear_secret()
+        self._session.lock()
+        super().closeEvent(event)
