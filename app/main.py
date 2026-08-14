@@ -6,6 +6,7 @@ import signal
 import sys
 
 from PySide6.QtCore import QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.repositories.credential_repository import CredentialRepository
@@ -13,16 +14,42 @@ from app.security.auto_lock import AutoLockManager
 from app.security.session import VaultSession
 from app.services.backup_service import BackupError, BackupService
 from app.services.clipboard_service import ClipboardService
+from app.services.storage_migration_service import (
+    StorageMigrationError,
+    migrate_legacy_storage,
+)
 from app.services.vault_service import VaultService
 from app.ui.icons import lucide_icon
 from app.ui.login_window import LoginWindow, as_vault_session
 from app.ui.main_window import MainWindow
 from app.ui.message_dialog import MessageDialog
-from app.utils.paths import BACKUP_DIRECTORY, DEFAULT_VAULT_PATH
+from app.utils.paths import (
+    APP_ICON_PATH,
+    BACKUP_DIRECTORY,
+    DEFAULT_VAULT_PATH,
+    LEGACY_BACKUP_DIRECTORY,
+    LEGACY_VAULT_PATH,
+)
 
 
 AUTO_LOCK_SECONDS = 5 * 60
 SIGNAL_POLL_INTERVAL_MS = 200
+WINDOWS_APP_USER_MODEL_ID = "KeyCiphra.Desktop"
+SMOKE_TEST_ARGUMENT = "--smoke-test"
+
+
+def configure_windows_app_identity() -> None:
+    """Evita que o Windows agrupe a janela apenas como um processo Python."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
+            WINDOWS_APP_USER_MODEL_ID
+        )
+    except (AttributeError, OSError):
+        pass
 
 
 def install_graceful_interrupt_handler(application: QApplication) -> QTimer:
@@ -335,7 +362,12 @@ QToolTip {
 class ApplicationController:
     """Troca janelas e conserva somente os serviços necessários."""
 
-    def __init__(self, application: QApplication) -> None:
+    def __init__(
+        self,
+        application: QApplication,
+        *,
+        initial_notice: str | None = None,
+    ) -> None:
         self._application = application
         self._vault_service = VaultService(DEFAULT_VAULT_PATH)
         self._backup_service = BackupService(
@@ -346,7 +378,7 @@ class ApplicationController:
         self._clipboard = ClipboardService(application.clipboard())
         self._auto_lock = AutoLockManager(application, AUTO_LOCK_SECONDS)
         self._auto_lock.timed_out.connect(self._handle_auto_lock)
-        self._pending_login_notice: str | None = None
+        self._pending_login_notice = initial_notice
         self._login_window: LoginWindow | None = None
         self._main_window: MainWindow | None = None
         self._shutting_down = False
@@ -426,16 +458,49 @@ class ApplicationController:
 
 
 def main() -> int:
+    configure_windows_app_identity()
     application = QApplication(sys.argv)
     application.setApplicationName("KeyCiphra")
     application.setApplicationDisplayName("KeyCiphra")
     application.setStyle("Fusion")
     application.setStyleSheet(APP_STYLESHEET)
-    application.setWindowIcon(lucide_icon("shield-check", "#60a5fa", 32))
-    controller = ApplicationController(application)
+    application.setWindowIcon(
+        QIcon(str(APP_ICON_PATH))
+        if APP_ICON_PATH.is_file()
+        else lucide_icon("shield-check", "#60a5fa", 32)
+    )
+    try:
+        migration = migrate_legacy_storage(
+            LEGACY_VAULT_PATH,
+            LEGACY_BACKUP_DIRECTORY,
+            DEFAULT_VAULT_PATH,
+            BACKUP_DIRECTORY,
+        )
+    except StorageMigrationError:
+        MessageDialog.error(
+            None,
+            "O cofre existente não pôde ser migrado para a pasta segura do Windows.",
+            title="Migração não concluída",
+            detail="Os arquivos originais permaneceram intactos.",
+        )
+        return 1
+
+    migration_notice = None
+    if migration.vault_copied:
+        migration_notice = (
+            "Seu cofre foi copiado para a pasta privada do KeyCiphra no Windows. "
+            "Os arquivos antigos foram preservados."
+        )
+        if migration.backups_skipped:
+            migration_notice += (
+                f" {migration.backups_skipped} backup(s) antigo(s) inválido(s) foram ignorados."
+            )
+    controller = ApplicationController(application, initial_notice=migration_notice)
     interrupt_poller = install_graceful_interrupt_handler(application)
     application.aboutToQuit.connect(controller.shutdown)
     controller.start()
+    if SMOKE_TEST_ARGUMENT in sys.argv:
+        QTimer.singleShot(750, application.quit)
     try:
         return application.exec()
     except KeyboardInterrupt:

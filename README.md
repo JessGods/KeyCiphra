@@ -20,6 +20,8 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Validação de integridade e retenção dos 10 backups mais recentes.
 - Exportação portátil e restauração autenticada para uso em outro computador.
 - Backup de segurança automático antes de substituir o cofre em uma restauração.
+- Dados privados armazenados em `%LOCALAPPDATA%\KeyCiphra` no Windows.
+- Executável portátil preparado com ícone e metadados próprios do KeyCiphra.
 - Testes de persistência após reabertura, CRUD, adulteração e ausência de
   plaintext sensível no arquivo.
 
@@ -51,14 +53,31 @@ python -m pip install -r requirements.txt
 ```
 
 No primeiro início, a tela solicitará a criação e confirmação de uma frase-senha
-mestra com pelo menos 12 caracteres. O arquivo `data/vault.db` será criado e
-reutilizado nos próximos inícios. Para confirmar a persistência:
+mestra com pelo menos 12 caracteres. O cofre será criado na pasta privada do
+usuário e reutilizado nos próximos inícios. Para confirmar a persistência:
 
 1. crie uma credencial e feche o aplicativo;
 2. execute `run.py` novamente;
 3. desbloqueie usando a mesma senha mestra.
 
 Não existe recuperação de senha mestra nesta versão.
+
+No Windows, o caminho completo usado em produção é
+`%LOCALAPPDATA%\KeyCiphra\data\vault.db`. Versões de desenvolvimento que ainda
+guardavam dados na raiz do projeto são migradas por cópia no primeiro início;
+os arquivos antigos não são apagados automaticamente.
+
+## Gerar o executável do Windows
+
+Instale as dependências de desenvolvimento e execute o build:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+.\build.ps1
+```
+
+O resultado será `dist\KeyCiphra.exe`, sem janela de terminal e com o ícone do
+produto. O build atual é portátil e ainda não constitui um instalador assinado.
 
 ## Arquitetura atual
 
@@ -91,8 +110,10 @@ usados para cofres reais.
 
 ## Persistência
 
-O caminho planejado para o cofre usado pela aplicação é `data/vault.db`. Essa
-pasta e todos os arquivos SQLite são ignorados pelo Git. O banco contém:
+O cofre usado pela aplicação fica em
+`%LOCALAPPDATA%\KeyCiphra\data\vault.db` no Windows. Backups ficam em
+`%LOCALAPPDATA%\KeyCiphra\backups`. Bancos locais e arquivos SQLite são
+ignorados pelo Git. O banco contém:
 
 - salt e parâmetros públicos do Argon2id;
 - versão do formato e do schema;
@@ -106,10 +127,10 @@ as credenciais, portanto os dados persistem entre execuções.
 
 ## Backups
 
-Os snapshots são criados em `backups/` usando a API de backup do SQLite. Antes
-de publicar um arquivo, o serviço executa `PRAGMA integrity_check` e confirma a
-presença dos metadados do cofre. A publicação usa substituição atômica e nunca
-gera uma versão descriptografada.
+Os snapshots são criados na subpasta `backups` do diretório privado da aplicação
+usando a API de backup do SQLite. Antes de publicar um arquivo, o serviço executa
+`PRAGMA integrity_check` e confirma a presença dos metadados do cofre. A
+publicação usa substituição atômica e nunca gera uma versão descriptografada.
 
 O primeiro desbloqueio cria um backup automático. Depois disso, o intervalo é
 de 24 horas. O botão **Backup** permite criar um snapshot manual. Somente os 10
@@ -118,8 +139,8 @@ mais recentes são preservados. A pasta inteira é ignorada pelo Git.
 O menu **Transferir** exporta uma cópia consistente para um arquivo `.db` e
 importa cofres criados pelo KeyCiphra. Na restauração, a senha mestra do arquivo
 é exigida e todas as credenciais são autenticadas antes de qualquer alteração.
-O cofre em uso é preservado automaticamente em `backups/`; após a troca, o
-aplicativo bloqueia a sessão e solicita a senha do cofre restaurado.
+O cofre em uso é preservado automaticamente na pasta de backups; após a troca,
+o aplicativo bloqueia a sessão e solicita a senha do cofre restaurado.
 
 O arquivo exportado pode ser transportado por mídia removível ou armazenamento
 em nuvem, mas não deve ser aberto simultaneamente por dois computadores. A
@@ -156,6 +177,7 @@ permitir atualização futura.
 - [AES-GCM na documentação do cryptography](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM)
 - [API de baixo nível do argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html#low-level)
 - [Avisos e licença dos ícones Lucide](THIRD_PARTY_NOTICES.md)
+- [Documentação do PyInstaller](https://pyinstaller.org/en/stable/)
 
 ## Roadmap
 
@@ -165,4 +187,6 @@ permitir atualização futura.
 4. Interface PySide6 (MVP concluído).
 5. Bloqueio automático, clipboard temporário, backup e transferência de cofre
    (concluído); logs sanitizados ainda pendentes.
-6. Hardening, análise estática, dependências e revisão de segurança.
+6. Caminhos de produção e executável portátil do Windows (concluído); instalador
+   assinado ainda pendente.
+7. Hardening, análise estática, dependências e revisão de segurança.
