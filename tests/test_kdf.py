@@ -3,6 +3,7 @@
 import pytest
 
 from app.security.kdf import KDFParameters, derive_key, generate_salt
+from app.security.kdf_benchmark import benchmark_kdf
 
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,
@@ -66,3 +67,16 @@ def test_rejects_short_salt() -> None:
 def test_rejects_untrusted_resource_exhaustion_parameters(parameters: dict) -> None:
     with pytest.raises(ValueError):
         KDFParameters(**parameters)
+
+
+def test_kdf_benchmark_uses_selected_parameters() -> None:
+    parameters = KDFParameters(time_cost=1, memory_cost_kib=8 * 1_024, parallelism=1)
+
+    result = benchmark_kdf(parameters, runs=2)
+
+    assert result.runs == 2
+    assert result.minimum_ms > 0
+    assert result.minimum_ms <= result.median_ms <= result.maximum_ms
+    assert result.time_cost == parameters.time_cost
+    assert result.memory_cost_kib == parameters.memory_cost_kib
+    assert result.parallelism == parameters.parallelism

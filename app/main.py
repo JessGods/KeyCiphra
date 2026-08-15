@@ -13,6 +13,10 @@ from app.models.app_settings import AppSettings
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.auto_lock import AutoLockManager
+from app.security.file_permissions import (
+    PrivateStoragePermissionError,
+    secure_private_directory,
+)
 from app.services.backup_service import BackupError, BackupService
 from app.services.category_service import CategoryService
 from app.services.clipboard_service import ClipboardService
@@ -29,6 +33,7 @@ from app.ui.message_dialog import MessageDialog
 from app.utils.logging_config import configure_logging, get_logger
 from app.utils.paths import (
     APP_ICON_PATH,
+    APPLICATION_DATA_DIRECTORY,
     BACKUP_DIRECTORY,
     DEFAULT_VAULT_PATH,
     LEGACY_BACKUP_DIRECTORY,
@@ -562,6 +567,11 @@ def main() -> int:
         else lucide_icon("shield-check", "#60a5fa", 32)
     )
     startup_notices: list[str] = []
+    permission_error: PrivateStoragePermissionError | None = None
+    try:
+        secure_private_directory(APPLICATION_DATA_DIRECTORY)
+    except PrivateStoragePermissionError as exc:
+        permission_error = exc
     try:
         logger = configure_logging(LOG_DIRECTORY)
         logger.info("application.start")
@@ -569,6 +579,14 @@ def main() -> int:
         logger = get_logger()
         startup_notices.append(
             "Os logs técnicos não puderam ser inicializados nesta execução."
+        )
+    if permission_error is not None:
+        logger.warning(
+            "storage.permission_hardening_failed type=%s",
+            type(permission_error).__name__,
+        )
+        startup_notices.append(
+            "O Windows não permitiu restringir totalmente a pasta privada do KeyCiphra."
         )
 
     settings_service = SettingsService(SETTINGS_PATH)

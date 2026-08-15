@@ -8,6 +8,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.database.connection import connect_database
+from app.database.migrations import (
+    OLDEST_SUPPORTED_SCHEMA_VERSION,
+    SchemaMigrationError,
+    migrate_schema,
+)
 from app.database.schema import SCHEMA_VERSION, initialize_schema
 from app.models.vault_metadata import VaultMetadata
 from app.security.kdf import KDFParameters, derive_key, generate_salt
@@ -15,7 +20,7 @@ from app.security.session import VaultSession
 from app.services.crypto_service import CryptoService, DecryptionError, EncryptedData
 
 FORMAT_VERSION = 1
-SUPPORTED_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
+SUPPORTED_SCHEMA_VERSIONS = frozenset(range(OLDEST_SUPPORTED_SCHEMA_VERSION, SCHEMA_VERSION + 1))
 MINIMUM_MASTER_PASSWORD_LENGTH = 12
 VERIFIER_PLAINTEXT = b"senhas-vault-unlock-verifier-v1"
 
@@ -177,18 +182,11 @@ class VaultService:
         """Aplica migrações aditivas somente após autenticar a senha mestra."""
         if current_version == SCHEMA_VERSION:
             return
-        with connect_database(self.database_path) as connection:
-            initialize_schema(connection)
-            cursor = connection.execute(
-                """
-                UPDATE vault_metadata
-                SET schema_version = ?
-                WHERE singleton = 1 AND schema_version = ?
-                """,
-                (SCHEMA_VERSION, current_version),
-            )
-        if cursor.rowcount != 1:
-            raise UnsupportedVaultError("Não foi possível atualizar o schema do cofre.")
+        try:
+            with connect_database(self.database_path) as connection:
+                migrate_schema(connection, current_version)
+        except (SchemaMigrationError, sqlite3.DatabaseError) as exc:
+            raise UnsupportedVaultError("Não foi possível atualizar o schema do cofre.") from exc
 
     @staticmethod
     def _verifier_aad(vault_id: str) -> bytes:

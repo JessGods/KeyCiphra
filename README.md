@@ -24,6 +24,9 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Exportação portátil e restauração autenticada para uso em outro computador.
 - Backup de segurança automático antes de substituir o cofre em uma restauração.
 - Dados privados armazenados em `%LOCALAPPDATA%\KeyCiphra` no Windows.
+- Permissões da pasta privada restritas ao usuário, SYSTEM e administradores no Windows.
+- Migrações incrementais e transacionais do schema após autenticação do cofre.
+- Auditoria contínua no GitHub Actions para Windows e Linux.
 - Executável portátil preparado com ícone e metadados próprios do KeyCiphra.
 - Configuração de bloqueio, clipboard e retenção com limites seguros.
 - Logs técnicos rotativos com sanitização defensiva de segredos.
@@ -67,6 +70,13 @@ para reduzir variações entre builds. A auditoria utiliza Ruff, Bandit e pip-au
 um resultado limpo reduz riscos conhecidos, mas não substitui revisão humana ou
 auditoria criptográfica independente.
 
+O relatório reproduzível do ciclo atual está em [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md).
+O custo dos parâmetros Argon2id pode ser medido sem abrir nenhum cofre:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.security.kdf_benchmark --runs 5
+```
+
 ## Executar o aplicativo
 
 ```powershell
@@ -82,6 +92,18 @@ usuário e reutilizado nos próximos inícios. Para confirmar a persistência:
 3. desbloqueie usando a mesma senha mestra.
 
 Não existe recuperação de senha mestra nesta versão.
+
+### Um cofre ou vários cofres?
+
+Nesta versão, o KeyCiphra usa **um cofre por perfil do Windows**. O botão
+**Nova credencial** cadastra qualquer login dentro desse cofre — por exemplo,
+uma conta bancária pode usar a categoria Financeiro. O menu **Transferir**
+exporta ou restaura um cofre completo; importar substitui o cofre atual somente
+depois de criar um backup de segurança.
+
+Ainda não existe uma tela para criar, nomear e alternar entre vários cofres.
+Esse gerenciador de cofres é um ciclo futuro e deverá manter cada arquivo,
+senha mestra, sessão e conjunto de backups isolados.
 
 No Windows, o caminho completo usado em produção é
 `%LOCALAPPDATA%\KeyCiphra\data\vault.db`. Versões de desenvolvimento que ainda
@@ -216,6 +238,10 @@ Os parâmetros Argon2id precisam ser medidos nos computadores suportados antes
 de uma versão distribuível. Eles são armazenados como metadados do cofre para
 permitir atualização futura.
 
+Em 15 de agosto de 2026, a configuração de produção apresentou mediana de
+97,84 ms em cinco medições neste computador. Esse valor é uma referência local;
+outros modelos de processador devem ser medidos antes de definir requisitos mínimos.
+
 ## Referências técnicas
 
 - [AES-GCM na documentação do cryptography](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM)
@@ -234,5 +260,8 @@ permitir atualização futura.
 6. Caminhos de produção e executável portátil do Windows (concluído); instalador
    assinado ainda pendente.
 7. Categorias criptografadas e filtros combinados (concluído).
-8. Hardening, análise estática e dependências (em andamento); revisão de
-   segurança independente ainda pendente.
+8. Hardening automatizado, permissões privadas, migrações transacionais e CI
+   multiplataforma (ciclo interno concluído); revisão de segurança independente
+   ainda pendente.
+9. Gerenciamento de múltiplos cofres, com criação, seleção e backups isolados
+   (próximo ciclo proposto).
