@@ -14,6 +14,7 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - CRUD de credenciais persistido em SQLite.
 - Categorias criptografadas com criação, renomeação, exclusão e reclassificação.
 - Filtro por categoria combinado com a pesquisa local.
+- Conjunto opcional de dados fictícios para demonstração, sem duplicação.
 - Todos os campos da credencial armazenados em um payload JSON criptografado.
 - Sessão invalidável ao bloquear o cofre.
 - Bloqueio automático após 5 minutos sem atividade.
@@ -165,6 +166,14 @@ rotação limitada a três arquivos anteriores de 512 KiB. O aplicativo registra
 eventos fixos e tipos de erro; um filtro adicional remove valores associados a
 senha, token, segredo, chave e clipboard. Tracebacks não são persistidos porque
 podem carregar entradas arbitrárias.
+
+## Dados de demonstração
+
+Com o cofre desbloqueado, abra **Gerenciar categorias** pelo botão de etiquetas
+e escolha **Adicionar exemplos**. A ação cria 20 credenciais fictícias em 10
+categorias, usando somente endereços sob `example.invalid` e senhas aleatórias.
+Executá-la novamente não duplica os registros. Os exemplos passam pela mesma
+criptografia das demais credenciais e podem ser editados ou excluídos normalmente.
 
 ## Modelo de segurança
 

@@ -38,6 +38,7 @@ from app.services.backup_service import (
 )
 from app.services.clipboard_service import ClipboardService
 from app.services.category_service import CategoryService
+from app.services.demo_data_service import DemoDataResult, DemoDataService
 from app.ui.category_manager_dialog import CategoryManagerDialog
 from app.ui.credential_dialog import CredentialDialog
 from app.ui.icons import lucide_icon
@@ -427,7 +428,11 @@ class MainWindow(QMainWindow):
     def _manage_categories(self, parent: QWidget) -> list[str]:
         if self._category_service is None:
             return self._category_names()
-        dialog = CategoryManagerDialog(self._category_service, parent)
+        dialog = CategoryManagerDialog(
+            self._category_service,
+            parent,
+            populate_demo=self._populate_demo_data,
+        )
         dialog.exec()
         if dialog.changed:
             self._load_credentials()
@@ -436,6 +441,11 @@ class MainWindow(QMainWindow):
             self._refresh_category_filter()
             self._apply_filter()
         return self._category_names()
+
+    def _populate_demo_data(self) -> DemoDataResult:
+        if self._category_service is None:
+            return DemoDataResult(0, 0)
+        return DemoDataService(self._category_service, self._repository).populate()
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self._settings, self)

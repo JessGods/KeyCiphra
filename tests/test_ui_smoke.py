@@ -81,7 +81,11 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         categories=main._category_names(),
         manage_categories=main._manage_categories,
     )
-    category_dialog = CategoryManagerDialog(category_service, main)
+    category_dialog = CategoryManagerDialog(
+        category_service,
+        main,
+        populate_demo=main._populate_demo_data,
+    )
     generator_dialog = PasswordGeneratorDialog(credential_dialog)
     message_dialog = MessageDialog(
         "Não foi possível desbloquear o cofre.",
@@ -138,6 +142,12 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     category_filter.setCurrentText("Sem categoria")
     assert main._table.rowCount() == 0
     assert category_dialog.findChild(QListWidget, "categoryList") is not None
+    demo_button = next(
+        button
+        for button in category_dialog.findChildren(QPushButton)
+        if button.text() == "Adicionar exemplos"
+    )
+    assert demo_button.isEnabled()
     assert message_dialog.objectName() == "messageDialog"
     assert message_dialog.minimumWidth() == 390
     restore_password = restore_dialog.findChild(QLineEdit, "restorePassword")

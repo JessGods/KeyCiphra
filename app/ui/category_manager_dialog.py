@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -20,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from app.models.category import Category
 from app.services.category_service import CategoryService, CategoryValidationError
+from app.services.demo_data_service import DemoDataResult
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
 from app.ui.window_chrome import install_window_chrome
@@ -29,9 +32,16 @@ from app.utils.logging_config import get_logger
 class CategoryManagerDialog(QDialog):
     """Cria, renomeia e remove categorias sem expor nomes fora do cofre."""
 
-    def __init__(self, service: CategoryService, parent=None) -> None:  # type: ignore[no-untyped-def]
+    def __init__(
+        self,
+        service: CategoryService,
+        parent=None,  # type: ignore[no-untyped-def]
+        *,
+        populate_demo: Callable[[], DemoDataResult] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._service = service
+        self._populate_demo_callback = populate_demo
         self._categories: list[Category] = []
         self._changed = False
         self.setObjectName("credentialDialog")
@@ -156,14 +166,23 @@ class CategoryManagerDialog(QDialog):
         content_layout.addLayout(editor, 1)
         outer.addWidget(content, 1)
 
-        safety = QLabel(
+        self._safety = QLabel(
             "Os nomes das categorias são criptografados junto com o restante do cofre."
         )
-        safety.setObjectName("restoreSafetyNote")
-        safety.setWordWrap(True)
-        outer.addWidget(safety)
+        self._safety.setObjectName("restoreSafetyNote")
+        self._safety.setWordWrap(True)
+        outer.addWidget(self._safety)
 
         footer = QHBoxLayout()
+        demo_button = QPushButton("Adicionar exemplos")
+        demo_button.setObjectName("secondaryButton")
+        demo_button.setIcon(lucide_icon("sparkles", "#dbeafe", 18))
+        demo_button.setIconSize(QSize(18, 18))
+        demo_button.setToolTip("Criar categorias e credenciais inteiramente fictícias")
+        demo_button.setEnabled(self._populate_demo_callback is not None)
+        self._fit_button(demo_button)
+        demo_button.clicked.connect(self._populate_demo)
+        footer.addWidget(demo_button)
         footer.addStretch()
         done = QPushButton("Concluir")
         done.setObjectName("primaryButton")
@@ -225,6 +244,43 @@ class CategoryManagerDialog(QDialog):
         self._new_name.clear()
         self._reload(created.id)
         get_logger().info("category.created")
+
+    def _populate_demo(self) -> None:
+        if self._populate_demo_callback is None:
+            return
+        if not MessageDialog.confirm(
+            self,
+            "Adicionar 20 credenciais fictícias distribuídas em 10 categorias?\n\n"
+            "Todos os endereços usam o domínio reservado example.invalid e não acessam contas reais.",
+            title="Adicionar dados de demonstração",
+            confirm_text="Adicionar exemplos",
+        ):
+            return
+        try:
+            result = self._populate_demo_callback()
+        except Exception as exc:
+            get_logger().error("demo_data.populate_failed type=%s", type(exc).__name__)
+            MessageDialog.error(
+                self,
+                "Não foi possível adicionar os dados de demonstração.",
+            )
+            return
+        if result.created_categories or result.created_credentials:
+            self._changed = True
+            self._safety.setText(
+                f"Exemplos adicionados: {result.created_credentials} credenciais e "
+                f"{result.created_categories} categorias. Tudo foi criptografado normalmente."
+            )
+            get_logger().info(
+                "demo_data.populated categories=%d credentials=%d",
+                result.created_categories,
+                result.created_credentials,
+            )
+        else:
+            self._safety.setText(
+                "Os dados de demonstração já estão neste cofre; nenhuma duplicata foi criada."
+            )
+        self._reload()
 
     def _rename(self) -> None:
         category_id = self._selected_id()
