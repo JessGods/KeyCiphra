@@ -326,3 +326,85 @@ class ArchiveVaultDialog(QDialog):
             self._error.show()
             return
         self.accept()
+
+
+class RestoreArchivedVaultDialog(QDialog):
+    def __init__(self, suggested_name: str, parent=None) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(parent)
+        self.setObjectName("credentialDialog")
+        self.setWindowTitle("Recuperar cofre")
+        self.setMinimumSize(540, 450)
+        self._name = QLineEdit(suggested_name)
+        self._password = QLineEdit()
+        self._error = QLabel()
+        self._build_ui()
+        self._name.selectAll()
+        self._name.setFocus()
+
+    @property
+    def vault_name(self) -> str:
+        return self._name.text()
+
+    @property
+    def master_password(self) -> str:
+        return self._password.text()
+
+    def clear_secrets(self) -> None:
+        self._password.clear()
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(18, 8, 18, 18)
+        outer.setSpacing(18)
+        install_window_chrome(self, outer, "Recuperar cofre", allow_maximize=False)
+        NewVaultDialog._add_header(
+            outer,
+            "rotate-ccw",
+            "Recuperar cofre arquivado",
+            "Ele voltará como um cofre independente e nenhum cofre ativo será substituído.",
+        )
+        card = QFrame()
+        card.setObjectName("dialogCard")
+        form = QVBoxLayout(card)
+        form.setContentsMargins(24, 22, 24, 22)
+        form.setSpacing(10)
+        self._name.setObjectName("restoreArchivedVaultName")
+        self._name.setMaxLength(48)
+        NewVaultDialog._prepare_field(form, "Nome após a recuperação", self._name)
+        self._password.setObjectName("restoreArchivedVaultPassword")
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password.setPlaceholderText("Senha mestra do cofre arquivado")
+        NewVaultDialog._prepare_field(form, "Senha mestra", self._password)
+        note = QLabel(
+            "A senha será usada somente em memória para autenticar o banco criptografado."
+        )
+        note.setObjectName("restoreSafetyNote")
+        note.setWordWrap(True)
+        form.addWidget(note)
+        self._error.setObjectName("inlineError")
+        self._error.setWordWrap(True)
+        self._error.hide()
+        form.addWidget(self._error)
+        outer.addWidget(card, 1)
+        self._password.returnPressed.connect(self._accept_if_valid)
+        NewVaultDialog._add_footer(
+            self,
+            outer,
+            "Recuperar cofre",
+            "rotate-ccw",
+            self._accept_if_valid,
+        )
+
+    def _accept_if_valid(self) -> None:
+        if not self._name.text().strip():
+            self._error.setText("Digite um nome para o cofre recuperado.")
+            self._error.show()
+            self._name.setFocus()
+            return
+        if not self._password.text():
+            self._error.setText("Digite a senha mestra do cofre arquivado.")
+            self._error.show()
+            self._password.setFocus()
+            return
+        self._error.hide()
+        self.accept()

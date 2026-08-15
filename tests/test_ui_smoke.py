@@ -30,6 +30,7 @@ from app.services.category_service import CategoryService  # noqa: E402
 from app.services.clipboard_service import ClipboardService  # noqa: E402
 from app.services.vault_catalog_service import VaultCatalogService  # noqa: E402
 from app.services.vault_service import VaultService  # noqa: E402
+from app.ui.archived_vaults_dialog import ArchivedVaultsDialog  # noqa: E402
 from app.ui.category_manager_dialog import CategoryManagerDialog  # noqa: E402
 from app.ui.credential_dialog import CredentialDialog  # noqa: E402
 from app.ui.login_window import LoginWindow  # noqa: E402
@@ -41,6 +42,7 @@ from app.ui.vault_manager_dialogs import (  # noqa: E402
     ArchiveVaultDialog,
     NewVaultDialog,
     RenameVaultDialog,
+    RestoreArchivedVaultDialog,
 )
 from app.ui.vault_manager_window import VaultManagerWindow  # noqa: E402
 from app.ui.vault_restore_dialog import VaultRestoreDialog  # noqa: E402
@@ -247,6 +249,8 @@ def test_vault_manager_and_dialogs_follow_the_theme(tmp_path: Path) -> None:
     new_dialog = NewVaultDialog(manager)
     rename_dialog = RenameVaultDialog("Cofre principal", manager)
     archive_dialog = ArchiveVaultDialog("Cofre principal", manager)
+    archived_dialog = ArchivedVaultsDialog(catalog, manager)
+    restore_archived_dialog = RestoreArchivedVaultDialog("Cofre principal", archived_dialog)
 
     assert manager.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert manager.findChild(WindowChrome) is not None
@@ -255,10 +259,24 @@ def test_vault_manager_and_dialogs_follow_the_theme(tmp_path: Path) -> None:
     assert new_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert rename_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert archive_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert archived_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert restore_archived_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert new_dialog.findChild(QLineEdit, "newVaultPassword").echoMode() == QLineEdit.EchoMode.Password
     assert archive_dialog.findChild(QLineEdit, "archiveVaultPassword").echoMode() == QLineEdit.EchoMode.Password
+    assert archived_dialog.findChild(QListWidget, "archivedVaultList").count() == 0
+    assert (
+        restore_archived_dialog.findChild(QLineEdit, "restoreArchivedVaultPassword").echoMode()
+        == QLineEdit.EchoMode.Password
+    )
 
-    for widget in (archive_dialog, rename_dialog, new_dialog, manager):
+    for widget in (
+        restore_archived_dialog,
+        archived_dialog,
+        archive_dialog,
+        rename_dialog,
+        new_dialog,
+        manager,
+    ):
         widget.close()
         widget.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)

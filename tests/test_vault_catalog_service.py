@@ -8,11 +8,13 @@ from pathlib import Path
 import pytest
 
 from app.security.kdf import KDFParameters
+from app.services.backup_service import BackupService
 from app.services.vault_catalog_service import (
     VaultArchiveAuthenticationError,
     VaultCatalogError,
     VaultCatalogService,
     VaultNameError,
+    VaultRestoreAuthenticationError,
 )
 from app.services.vault_service import VaultService
 
@@ -98,9 +100,127 @@ def test_archive_requires_password_and_moves_managed_storage(tmp_path: Path) -> 
 
     assert not original_directory.exists()
     assert (archived / "storage" / "vault.db").is_file()
+    assert (archived / "manifest.json").is_file()
+    assert service.list_archived()[0].vault.name == "Temporário"
     assert service.list_vaults() == ()
     with pytest.raises(VaultCatalogError):
         service.get(vault.id)
+
+
+def test_archived_vault_is_authenticated_and_restored_without_replacing_another(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    archived_vault, session = service.create(
+        "Arquivo pessoal",
+        MASTER_PASSWORD,
+        FAST_TEST_PARAMETERS,
+    )
+    session.lock()
+    archive_path = service.archive(archived_vault.id, MASTER_PASSWORD)
+    active, session = service.create(
+        "Trabalho",
+        "outra-frase-mestra-ficticia",
+        FAST_TEST_PARAMETERS,
+    )
+    session.lock()
+    archived = service.list_archived()[0]
+
+    with pytest.raises(VaultRestoreAuthenticationError):
+        service.restore_archived(
+            archived.archive_key,
+            "Pessoal restaurado",
+            "senha-incorreta-ficticia",
+        )
+
+    assert archive_path.is_dir()
+    restored = service.restore_archived(
+        archived.archive_key,
+        "Pessoal restaurado",
+        MASTER_PASSWORD,
+    )
+
+    assert {vault.name for vault in service.list_vaults()} == {
+        active.name,
+        "Pessoal restaurado",
+    }
+    assert restored.storage_kind == "managed"
+    assert VaultService(service.vault_path(restored)).unlock(MASTER_PASSWORD).is_unlocked
+    assert not archive_path.exists()
+    assert service.list_archived() == ()
+
+
+def test_archives_from_version_070_without_manifest_can_be_restored(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    vault, session = service.create("Legado 0.7", MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    session.lock()
+    archive_path = service.archive(vault.id, MASTER_PASSWORD)
+    (archive_path / "manifest.json").unlink()
+
+    archived = service.list_archived()[0]
+
+    assert not archived.has_manifest
+    restored = service.restore_archived(
+        archived.archive_key,
+        "Legado recuperado",
+        MASTER_PASSWORD,
+    )
+    assert restored.name == "Legado recuperado"
+    VaultService(service.vault_path(restored)).unlock(MASTER_PASSWORD).lock()
+
+
+def test_archive_key_cannot_escape_the_archive_directory(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.initialize()
+
+    with pytest.raises(VaultCatalogError):
+        service.get_archived("../vault.db")
+
+
+def test_restore_preserves_existing_backups(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    vault, session = service.create("Com backups", MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    session.lock()
+    backup = BackupService(
+        service.vault_path(vault),
+        service.backup_directory(vault),
+    ).create_backup()
+    archived_path = service.archive(vault.id, MASTER_PASSWORD)
+
+    restored = service.restore_archived(
+        service.list_archived()[0].archive_key,
+        "Com backups restaurado",
+        MASTER_PASSWORD,
+    )
+
+    assert not archived_path.exists()
+    assert (service.backup_directory(restored) / backup.name).is_file()
+
+
+def test_restore_rolls_storage_back_when_catalog_cannot_be_saved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _service(tmp_path)
+    vault, session = service.create("Rollback", MASTER_PASSWORD, FAST_TEST_PARAMETERS)
+    session.lock()
+    archive_path = service.archive(vault.id, MASTER_PASSWORD)
+    archive = service.list_archived()[0]
+
+    def fail_save(_vaults: object) -> None:
+        raise VaultCatalogError("falha fictícia")
+
+    monkeypatch.setattr(service, "_save", fail_save)
+
+    with pytest.raises(VaultCatalogError):
+        service.restore_archived(
+            archive.archive_key,
+            "Rollback restaurado",
+            MASTER_PASSWORD,
+        )
+
+    assert (archive_path / "storage" / "vault.db").is_file()
+    assert not (tmp_path / "vaults" / vault.id).exists()
 
 
 def test_invalid_catalog_is_rejected_without_touching_vault(tmp_path: Path) -> None:

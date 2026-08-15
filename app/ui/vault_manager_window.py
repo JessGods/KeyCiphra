@@ -25,6 +25,7 @@ from app.services.vault_catalog_service import (
     VaultCatalogService,
     VaultNameError,
 )
+from app.ui.archived_vaults_dialog import ArchivedVaultsDialog
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
 from app.ui.vault_manager_dialogs import (
@@ -93,6 +94,13 @@ class VaultManagerWindow(QMainWindow):
         create.setIconSize(QSize(18, 18))
         create.setMinimumHeight(42)
         create.clicked.connect(self._create)
+        archives = QPushButton("Arquivados")
+        archives.setObjectName("secondaryButton")
+        archives.setIcon(lucide_icon("archive", "#e5e7eb", 18))
+        archives.setIconSize(QSize(18, 18))
+        archives.setMinimumHeight(42)
+        archives.clicked.connect(self._open_archives)
+        heading.addWidget(archives)
         heading.addWidget(create)
         layout.addLayout(heading)
 
@@ -263,3 +271,15 @@ class VaultManagerWindow(QMainWindow):
             title="Cofre arquivado",
             detail=str(archive_path),
         )
+
+    def _open_archives(self) -> None:
+        dialog = ArchivedVaultsDialog(self._service, self)
+        dialog.exec()
+        if dialog.restored_vault is not None:
+            self.refresh(dialog.restored_vault.id)
+            MessageDialog.warning(
+                self,
+                f'“{dialog.restored_vault.name}” voltou para a lista de cofres.',
+                title="Cofre recuperado",
+                detail="Use a senha mestra original para desbloqueá-lo.",
+            )

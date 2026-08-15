@@ -26,6 +26,7 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Dados privados armazenados em `%LOCALAPPDATA%\KeyCiphra` no Windows.
 - Múltiplos cofres independentes, com seleção antes do desbloqueio.
 - Criação, renomeação e arquivamento autenticado de cofres pela interface.
+- Recuperação temática e autenticada de cofres arquivados, inclusive da versão 0.7.0.
 - Backups e sessões isolados por cofre.
 - Permissões da pasta privada restritas ao usuário, SYSTEM e administradores no Windows.
 - Migrações incrementais e transacionais do schema após autenticação do cofre.
@@ -109,6 +110,13 @@ são movidos para uma área recuperável em vez de apagados permanentemente. Com
 os nomes precisam aparecer antes do desbloqueio, eles não são criptografados:
 use apenas rótulos descritivos e nunca coloque senhas ou outros segredos neles.
 
+O botão **Arquivados** abre a área de recuperação. Selecione o item, escolha o
+nome que ele terá ao voltar e informe sua senha mestra original. O KeyCiphra
+autentica o banco antes de movê-lo, preserva seus backups e o registra como um
+cofre independente; nenhum cofre ativo é substituído. Pastas geradas pela versão
+0.7.0, que ainda não possuíam manifesto com o nome original, também são
+reconhecidas e podem receber um novo nome durante a recuperação.
+
 No Windows, o caminho completo usado em produção é
 `%LOCALAPPDATA%\KeyCiphra\data\vault.db`. Versões de desenvolvimento que ainda
 guardavam dados na raiz do projeto são migradas por cópia no primeiro início;
@@ -164,7 +172,14 @@ O cofre principal preservado fica em
 `backups` do próprio cofre. Registros de seleção ficam em `vaults.json`; esse
 catálogo contém somente identificador, nome, tipo de armazenamento e data de
 criação — nunca senhas ou chaves. Bancos locais e arquivos SQLite são ignorados
-pelo Git. Cada banco contém:
+pelo Git.
+
+Cofres arquivados ficam em `%LOCALAPPDATA%\KeyCiphra\archived-vaults`. Novos
+arquivamentos incluem um manifesto sem segredos com nome, identificador e datas;
+o banco, suas credenciais e a senha mestra permanecem protegidos pelo mesmo
+formato criptográfico.
+
+Cada banco contém:
 
 - salt e parâmetros públicos do Argon2id;
 - versão do formato e do schema;
@@ -272,5 +287,7 @@ outros modelos de processador devem ser medidos antes de definir requisitos mín
    ainda pendente.
 9. Gerenciamento de múltiplos cofres, com criação, seleção, renomeação,
    arquivamento autenticado e backups isolados (concluído).
-10. Instalador assinado e fluxo temático para restaurar cofres arquivados
+10. Recuperação temática, autenticada e transacional de cofres arquivados,
+    incluindo compatibilidade com a versão 0.7.0 (concluído).
+11. Instalador do Windows, assinatura de código e processo de atualização
     (próximo ciclo proposto).
