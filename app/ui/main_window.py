@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, QStandardPaths, Qt, Signal
@@ -26,18 +26,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.models.credential import Credential
 from app.models.app_settings import AppSettings
-from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
+from app.models.credential import Credential
 from app.repositories.category_repository import CategoryRepositoryIntegrityError
+from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
 from app.security.session import VaultSession
 from app.services.backup_service import (
     BackupAuthenticationError,
     BackupError,
     BackupService,
 )
-from app.services.clipboard_service import ClipboardService
 from app.services.category_service import CategoryService
+from app.services.clipboard_service import ClipboardService
 from app.services.demo_data_service import DemoDataResult, DemoDataService
 from app.ui.category_manager_dialog import CategoryManagerDialog
 from app.ui.credential_dialog import CredentialDialog
@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self._category_service = category_service
         self._credentials: list[Credential] = []
         self._action_column_width = 0
+        self._transfer_directory = self._default_transfer_directory()
 
         self._search = QLineEdit()
         self._category_filter = QComboBox()
@@ -548,41 +549,59 @@ class MainWindow(QMainWindow):
         )
 
     def _choose_export_destination(self) -> Path | None:
-        documents = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DocumentsLocation
-        )
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        suggested = Path(documents or str(Path.home())) / f"keyciphra_{timestamp}.db"
+        timestamp = datetime.now(UTC).astimezone().strftime("%Y-%m-%d_%H-%M-%S")
         dialog = self._file_dialog("Exportar cofre criptografado")
         dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
         dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         dialog.setDefaultSuffix("db")
-        dialog.selectFile(str(suggested))
+        dialog.selectFile(f"keyciphra_{timestamp}.db")
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         destination = Path(dialog.selectedFiles()[0])
-        return destination if destination.suffix.lower() == ".db" else destination.with_suffix(".db")
+        self._remember_transfer_directory(destination.parent)
+        return (
+            destination
+            if destination.suffix.lower() == ".db"
+            else destination.with_suffix(".db")
+        )
 
     def _choose_import_source(self) -> Path | None:
-        documents = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DocumentsLocation
-        )
         dialog = self._file_dialog("Importar cofre criptografado")
         dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
-        if documents:
-            dialog.setDirectory(documents)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
-        return Path(dialog.selectedFiles()[0])
+        source = Path(dialog.selectedFiles()[0])
+        self._remember_transfer_directory(source.parent)
+        return source
 
     def _file_dialog(self, title: str) -> QFileDialog:
         dialog = QFileDialog(self, title)
         dialog.setObjectName("fileDialog")
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setNameFilter("Cofre KeyCiphra (*.db);;Todos os arquivos (*)")
+        initial_directory = (
+            self._transfer_directory
+            if self._transfer_directory.is_dir()
+            else self._default_transfer_directory()
+        )
+        dialog.setDirectory(str(initial_directory))
         dialog.resize(820, 560)
         return dialog
+
+    def _remember_transfer_directory(self, directory: Path) -> None:
+        """Mantém a última pasta apenas na sessão, sem persistir caminhos privados."""
+        candidate = Path(directory)
+        if candidate.is_dir():
+            self._transfer_directory = candidate
+
+    @staticmethod
+    def _default_transfer_directory() -> Path:
+        documents = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DocumentsLocation
+        )
+        candidate = Path(documents) if documents else Path.home()
+        return candidate if candidate.is_dir() else Path.home()
 
     def _lock(self) -> None:
         self._credentials.clear()

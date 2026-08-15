@@ -7,8 +7,8 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
@@ -26,11 +26,11 @@ from app.repositories.category_repository import CategoryRepository  # noqa: E40
 from app.repositories.credential_repository import CredentialRepository  # noqa: E402
 from app.security.kdf import KDFParameters  # noqa: E402
 from app.services.backup_service import BackupService  # noqa: E402
-from app.services.clipboard_service import ClipboardService  # noqa: E402
 from app.services.category_service import CategoryService  # noqa: E402
+from app.services.clipboard_service import ClipboardService  # noqa: E402
 from app.services.vault_service import VaultService  # noqa: E402
-from app.ui.credential_dialog import CredentialDialog  # noqa: E402
 from app.ui.category_manager_dialog import CategoryManagerDialog  # noqa: E402
+from app.ui.credential_dialog import CredentialDialog  # noqa: E402
 from app.ui.login_window import LoginWindow  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
@@ -38,7 +38,6 @@ from app.ui.password_generator_dialog import PasswordGeneratorDialog  # noqa: E4
 from app.ui.settings_dialog import SettingsDialog  # noqa: E402
 from app.ui.vault_restore_dialog import VaultRestoreDialog  # noqa: E402
 from app.ui.window_chrome import WindowChrome  # noqa: E402
-
 
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,
@@ -186,8 +185,12 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         "Exportar cofre…",
         "Importar/Restaurar cofre…",
     }
+    transfer_directory = tmp_path / "transferencias"
+    transfer_directory.mkdir()
+    main._remember_transfer_directory(transfer_directory)
     file_dialog = main._file_dialog("Selecionar cofre")
     assert file_dialog.testOption(QFileDialog.Option.DontUseNativeDialog)
+    assert Path(file_dialog.directory().absolutePath()) == transfer_directory
     settings_button = next(
         button
         for button in main.findChildren(QPushButton)
