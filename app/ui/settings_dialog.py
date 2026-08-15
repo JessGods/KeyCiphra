@@ -166,7 +166,7 @@ class SettingsDialog(QDialog):
             )
         )
         note = QLabel(
-            "As preferências não contêm senhas ou chaves. Alterações nos temporizadores são aplicadas imediatamente."
+            "As preferências não contêm senhas ou chaves. O contador reinicia com cliques, teclas, rolagem ou toque — movimentos isolados do cursor não prolongam a sessão."
         )
         note.setObjectName("restoreSafetyNote")
         note.setWordWrap(True)

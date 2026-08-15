@@ -501,7 +501,12 @@ class ApplicationController:
         self._clipboard.set_timeout_seconds(value.clipboard_seconds)
         self._backup_service.set_retention(value.backup_retention)
         self._main_window.apply_settings(value)
-        get_logger().info("settings.updated")
+        get_logger().info(
+            "settings.updated auto_lock_minutes=%d clipboard_seconds=%d backup_retention=%d",
+            value.auto_lock_minutes,
+            value.clipboard_seconds,
+            value.backup_retention,
+        )
 
     def shutdown(self) -> None:
         """Descarta segredos transitórios antes de encerrar o processo."""

@@ -7,6 +7,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QEventLoop, QTimer, Qt
 from PySide6.QtWidgets import QApplication
 
 from app.security.auto_lock import AutoLockManager
@@ -54,3 +55,20 @@ def test_auto_lock_timeout_can_be_updated_while_active() -> None:
 
     assert manager.timeout_seconds == 720
     assert manager.is_active
+
+
+def test_updated_timeout_really_emits_after_elapsed_interval() -> None:
+    application = QApplication.instance() or QApplication([])
+    manager = AutoLockManager(application, timeout_seconds=300)
+    emissions: list[bool] = []
+    manager.timed_out.connect(lambda: emissions.append(True))
+    manager.start()
+
+    manager.set_timeout_seconds(1)
+    loop = QEventLoop()
+    QTimer.singleShot(1_300, loop.quit)
+    loop.exec()
+
+    assert manager._timer.timerType() == Qt.TimerType.PreciseTimer
+    assert emissions == [True]
+    assert not manager.is_active

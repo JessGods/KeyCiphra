@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import QApplication
 
 
@@ -10,7 +10,6 @@ _ACTIVITY_EVENTS = {
     QEvent.Type.KeyPress,
     QEvent.Type.MouseButtonPress,
     QEvent.Type.MouseButtonDblClick,
-    QEvent.Type.MouseMove,
     QEvent.Type.Wheel,
     QEvent.Type.TouchBegin,
     QEvent.Type.TabletPress,
@@ -30,6 +29,7 @@ class AutoLockManager(QObject):
         self._active = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
+        self._timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._timer.setInterval(timeout_seconds * 1_000)
         self._timer.timeout.connect(self._on_timeout)
         application.installEventFilter(self)
@@ -62,7 +62,7 @@ class AutoLockManager(QObject):
             self._timer.start()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if self._active and event.type() in _ACTIVITY_EVENTS:
+        if self._active and event.spontaneous() and event.type() in _ACTIVITY_EVENTS:
             self.reset()
         return super().eventFilter(watched, event)
 

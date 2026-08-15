@@ -353,7 +353,11 @@ class MainWindow(QMainWindow):
 
     def apply_settings(self, settings: AppSettings) -> None:
         self._settings = settings
-        self.statusBar().showMessage("Configurações de segurança atualizadas.", 6_000)
+        self.statusBar().showMessage(
+            "Configurações salvas — bloqueio após "
+            f"{settings.auto_lock_minutes} minuto(s) sem cliques, teclas ou rolagem.",
+            8_000,
+        )
 
     def _create_backup(self) -> None:
         if self._backup_service is None:
