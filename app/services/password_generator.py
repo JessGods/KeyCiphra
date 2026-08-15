@@ -6,7 +6,6 @@ import secrets
 import string
 from dataclasses import dataclass
 
-
 SYMBOLS = "!@#$%^&*()-_=+[]{};:,.?"
 
 

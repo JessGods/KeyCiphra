@@ -4,7 +4,6 @@ import pytest
 
 from app.security.kdf import KDFParameters, derive_key, generate_salt
 
-
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,
     memory_cost_kib=8 * 1_024,

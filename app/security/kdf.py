@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from argon2.low_level import ARGON2_VERSION, Type, hash_secret_raw
 
-
 SALT_BYTES = 16
 AES_256_KEY_BYTES = 32
 MAX_TIME_COST = 10

@@ -123,4 +123,4 @@ class CategoryRepository:
             ) from exc
 
     def _aad(self, category_id: str) -> bytes:
-        return f"senhas:category:v1:{self._session.vault_id}:{category_id}".encode("utf-8")
+        return f"senhas:category:v1:{self._session.vault_id}:{category_id}".encode()

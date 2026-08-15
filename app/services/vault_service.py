@@ -14,7 +14,6 @@ from app.security.kdf import KDFParameters, derive_key, generate_salt
 from app.security.session import VaultSession
 from app.services.crypto_service import CryptoService, DecryptionError, EncryptedData
 
-
 FORMAT_VERSION = 1
 SUPPORTED_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
 MINIMUM_MASTER_PASSWORD_LENGTH = 12
@@ -193,4 +192,4 @@ class VaultService:
 
     @staticmethod
     def _verifier_aad(vault_id: str) -> bytes:
-        return f"senhas:vault-verifier:v1:{vault_id}".encode("utf-8")
+        return f"senhas:vault-verifier:v1:{vault_id}".encode()

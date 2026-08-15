@@ -8,13 +8,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
-from app.repositories.credential_repository import (
-    CredentialRepository,
-    RepositoryIntegrityError,
-)
 from app.repositories.category_repository import (
     CategoryRepository,
     CategoryRepositoryIntegrityError,
+)
+from app.repositories.credential_repository import (
+    CredentialRepository,
+    RepositoryIntegrityError,
 )
 from app.services.vault_service import (
     UnsupportedVaultError,

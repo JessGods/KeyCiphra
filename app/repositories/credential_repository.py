@@ -156,4 +156,4 @@ class CredentialRepository:
             ) from exc
 
     def _aad(self, credential_id: str) -> bytes:
-        return f"senhas:credential:v1:{self._session.vault_id}:{credential_id}".encode("utf-8")
+        return f"senhas:credential:v1:{self._session.vault_id}:{credential_id}".encode()

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-
 MIN_AUTO_LOCK_MINUTES = 1
 MAX_AUTO_LOCK_MINUTES = 60
 MIN_CLIPBOARD_SECONDS = 10

@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from app.models.credential import Credential
 from app.models.category import Category
+from app.models.credential import Credential
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.kdf import KDFParameters
@@ -20,7 +20,6 @@ from app.services.backup_service import (
     BackupService,
 )
 from app.services.vault_service import VaultService
-
 
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,

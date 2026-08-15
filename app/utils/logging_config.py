@@ -8,7 +8,6 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-
 LOGGER_NAME = "keyciphra"
 MAX_LOG_BYTES = 512 * 1_024
 LOG_BACKUP_COUNT = 3

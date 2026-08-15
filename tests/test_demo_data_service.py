@@ -12,7 +12,6 @@ from app.services.category_service import CategoryService
 from app.services.demo_data_service import DEMO_CREDENTIALS, DemoDataService
 from app.services.vault_service import VaultService
 
-
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,
     memory_cost_kib=8 * 1_024,

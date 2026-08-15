@@ -13,7 +13,6 @@ from app.models.app_settings import AppSettings
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.auto_lock import AutoLockManager
-from app.security.session import VaultSession
 from app.services.backup_service import BackupError, BackupService
 from app.services.category_service import CategoryService
 from app.services.clipboard_service import ClipboardService
@@ -37,7 +36,6 @@ from app.utils.paths import (
     LOG_DIRECTORY,
     SETTINGS_PATH,
 )
-
 
 SIGNAL_POLL_INTERVAL_MS = 200
 WINDOWS_APP_USER_MODEL_ID = "KeyCiphra.Desktop"

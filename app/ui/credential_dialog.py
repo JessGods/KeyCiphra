@@ -7,8 +7,8 @@ from dataclasses import replace
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
-    QDialog,
     QComboBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,

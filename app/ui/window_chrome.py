@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
 
 from app.ui.icons import lucide_icon
 
-
 Window = QMainWindow | QDialog
 
 

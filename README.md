@@ -48,8 +48,24 @@ python -m pip install -r requirements.txt
 ## Testes
 
 ```powershell
+python -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest
 ```
+
+## Hardening e auditoria
+
+O pipeline local executa lint, análise de padrões inseguros, consulta de
+vulnerabilidades conhecidas, verificação de compatibilidade das dependências e
+a suíte completa de testes:
+
+```powershell
+.\hardening.ps1
+```
+
+As dependências diretas de execução e desenvolvimento possuem versões fixadas
+para reduzir variações entre builds. A auditoria utiliza Ruff, Bandit e pip-audit;
+um resultado limpo reduz riscos conhecidos, mas não substitui revisão humana ou
+auditoria criptográfica independente.
 
 ## Executar o aplicativo
 
@@ -218,4 +234,5 @@ permitir atualização futura.
 6. Caminhos de produção e executável portátil do Windows (concluído); instalador
    assinado ainda pendente.
 7. Categorias criptografadas e filtros combinados (concluído).
-8. Hardening, análise estática, dependências e revisão de segurança.
+8. Hardening, análise estática e dependências (em andamento); revisão de
+   segurança independente ainda pendente.

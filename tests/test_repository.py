@@ -16,7 +16,6 @@ from app.security.kdf import KDFParameters
 from app.security.session import VaultLockedError, VaultSession
 from app.services.vault_service import VaultService
 
-
 FAST_TEST_PARAMETERS = KDFParameters(
     time_cost=1,
     memory_cost_kib=8 * 1_024,

@@ -7,7 +7,6 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
-
 APPLICATION_NAME = "KeyCiphra"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_DATA_DIRECTORY = PROJECT_ROOT / "data"
