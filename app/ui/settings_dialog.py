@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -26,6 +27,52 @@ from app.models.app_settings import (
 )
 from app.ui.icons import lucide_icon
 from app.ui.window_chrome import install_window_chrome
+
+
+class NumericStepper(QWidget):
+    """Substitui as setas nativas inconsistentes por controles temáticos."""
+
+    def __init__(self, spin_box: QSpinBox, setting_name: str) -> None:
+        super().__init__()
+        self.setObjectName("numericStepper")
+        self._spin_box = spin_box
+        spin_box.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self._decrease = self._button(
+            "minimize",
+            f"Diminuir {setting_name}",
+        )
+        self._decrease.clicked.connect(spin_box.stepDown)
+        layout.addWidget(self._decrease)
+        layout.addWidget(spin_box)
+        self._increase = self._button(
+            "plus",
+            f"Aumentar {setting_name}",
+        )
+        self._increase.clicked.connect(spin_box.stepUp)
+        layout.addWidget(self._increase)
+
+        spin_box.valueChanged.connect(self._sync_buttons)
+        self._sync_buttons(spin_box.value())
+
+    @staticmethod
+    def _button(icon_name: str, accessible_name: str) -> QPushButton:
+        button = QPushButton()
+        button.setObjectName("stepperButton")
+        button.setAccessibleName(accessible_name)
+        button.setToolTip(accessible_name)
+        button.setIcon(lucide_icon(icon_name, "#dbeafe", 17))
+        button.setIconSize(QSize(17, 17))
+        button.setFixedSize(38, 42)
+        return button
+
+    def _sync_buttons(self, value: int) -> None:
+        self._decrease.setEnabled(value > self._spin_box.minimum())
+        self._increase.setEnabled(value < self._spin_box.maximum())
 
 
 class SettingsDialog(QDialog):
@@ -99,7 +146,7 @@ class SettingsDialog(QDialog):
             self._setting_row(
                 "Bloqueio automático",
                 "Tempo máximo sem atividade antes de exigir novamente a senha mestra.",
-                self._auto_lock,
+                NumericStepper(self._auto_lock, "bloqueio automático"),
             )
         )
         content.addWidget(self._divider())
@@ -107,7 +154,7 @@ class SettingsDialog(QDialog):
             self._setting_row(
                 "Limpeza do clipboard",
                 "Tempo que uma senha copiada permanece disponível para colar.",
-                self._clipboard,
+                NumericStepper(self._clipboard, "tempo do clipboard"),
             )
         )
         content.addWidget(self._divider())
@@ -115,7 +162,7 @@ class SettingsDialog(QDialog):
             self._setting_row(
                 "Retenção de backups",
                 "Quantidade máxima preservada após a criação do próximo backup.",
-                self._backup_retention,
+                NumericStepper(self._backup_retention, "retenção de backups"),
             )
         )
         note = QLabel(

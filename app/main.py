@@ -275,6 +275,22 @@ QPushButton#destructiveButton:hover { background-color: #dc2626; border-color: #
 QPushButton#compactActionButton { padding: 4px 9px; border-radius: 6px; }
 QPushButton[danger="true"] { color: #fecaca; background-color: #7f1d1d; }
 QPushButton[danger="true"]:hover { background-color: #991b1b; border-color: #ef4444; }
+QWidget#numericStepper { background: transparent; }
+QPushButton#stepperButton {
+    background-color: #1e293b;
+    border: 1px solid #475569;
+    border-radius: 7px;
+    padding: 0;
+}
+QPushButton#stepperButton:hover {
+    background-color: #2563eb;
+    border-color: #60a5fa;
+}
+QPushButton#stepperButton:pressed { background-color: #1d4ed8; }
+QPushButton#stepperButton:disabled {
+    background-color: #111827;
+    border-color: #273449;
+}
 QMenu {
     color: #e5e7eb;
     background-color: #111b2e;

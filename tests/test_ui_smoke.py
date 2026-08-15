@@ -117,6 +117,23 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert restore_password.echoMode() == QLineEdit.EchoMode.Password
     assert len(settings_dialog.findChildren(QSpinBox)) == 3
     assert settings_dialog.settings == AppSettings()
+    assert all(
+        spin.buttonSymbols() == QSpinBox.ButtonSymbols.NoButtons
+        for spin in settings_dialog.findChildren(QSpinBox)
+    )
+    stepper_buttons = [
+        button
+        for button in settings_dialog.findChildren(QPushButton)
+        if button.objectName() == "stepperButton"
+    ]
+    assert len(stepper_buttons) == 6
+    decrease_auto_lock = next(
+        button
+        for button in stepper_buttons
+        if button.accessibleName() == "Diminuir bloqueio automático"
+    )
+    decrease_auto_lock.click()
+    assert settings_dialog.settings.auto_lock_minutes == 4
 
     backup_button = next(
         button for button in main.findChildren(QPushButton) if button.text() == "Backup"
