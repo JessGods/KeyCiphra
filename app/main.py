@@ -9,11 +9,13 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from app.models.app_settings import AppSettings
 from app.repositories.credential_repository import CredentialRepository
 from app.security.auto_lock import AutoLockManager
 from app.security.session import VaultSession
 from app.services.backup_service import BackupError, BackupService
 from app.services.clipboard_service import ClipboardService
+from app.services.settings_service import SettingsError, SettingsService
 from app.services.storage_migration_service import (
     StorageMigrationError,
     migrate_legacy_storage,
@@ -23,16 +25,18 @@ from app.ui.icons import lucide_icon
 from app.ui.login_window import LoginWindow, as_vault_session
 from app.ui.main_window import MainWindow
 from app.ui.message_dialog import MessageDialog
+from app.utils.logging_config import configure_logging, get_logger
 from app.utils.paths import (
     APP_ICON_PATH,
     BACKUP_DIRECTORY,
     DEFAULT_VAULT_PATH,
     LEGACY_BACKUP_DIRECTORY,
     LEGACY_VAULT_PATH,
+    LOG_DIRECTORY,
+    SETTINGS_PATH,
 )
 
 
-AUTO_LOCK_SECONDS = 5 * 60
 SIGNAL_POLL_INTERVAL_MS = 200
 WINDOWS_APP_USER_MODEL_ID = "KeyCiphra.Desktop"
 SMOKE_TEST_ARGUMENT = "--smoke-test"
@@ -366,17 +370,27 @@ class ApplicationController:
         self,
         application: QApplication,
         *,
+        settings: AppSettings,
+        settings_service: SettingsService,
         initial_notice: str | None = None,
     ) -> None:
         self._application = application
+        self._settings = settings
+        self._settings_service = settings_service
         self._vault_service = VaultService(DEFAULT_VAULT_PATH)
         self._backup_service = BackupService(
             DEFAULT_VAULT_PATH,
             BACKUP_DIRECTORY,
-            retention=10,
+            retention=settings.backup_retention,
         )
-        self._clipboard = ClipboardService(application.clipboard())
-        self._auto_lock = AutoLockManager(application, AUTO_LOCK_SECONDS)
+        self._clipboard = ClipboardService(
+            application.clipboard(),
+            settings.clipboard_seconds,
+        )
+        self._auto_lock = AutoLockManager(
+            application,
+            settings.auto_lock_minutes * 60,
+        )
         self._auto_lock.timed_out.connect(self._handle_auto_lock)
         self._pending_login_notice = initial_notice
         self._login_window: LoginWindow | None = None
@@ -384,6 +398,7 @@ class ApplicationController:
         self._shutting_down = False
 
     def start(self) -> None:
+        get_logger().info("application.ui_started")
         self.show_login()
 
     def show_login(self) -> None:
@@ -407,9 +422,11 @@ class ApplicationController:
             session,
             self._clipboard,
             self._backup_service,
+            self._settings,
         )
         self._main_window.lock_requested.connect(self.show_login)
         self._main_window.vault_restored.connect(self._handle_vault_restored)
+        self._main_window.settings_changed.connect(self._handle_settings_changed)
         if not self._main_window.initialize():
             self._main_window = None
             self.show_login()
@@ -419,11 +436,14 @@ class ApplicationController:
             self._login_window.close()
             self._login_window = None
         self._auto_lock.start()
+        get_logger().info("vault.session_opened")
         try:
             backup = self._backup_service.create_if_due()
             if backup is not None:
                 self._main_window.notify_backup_created(backup.name)
-        except BackupError:
+                get_logger().info("backup.automatic_created")
+        except BackupError as exc:
+            get_logger().error("backup.automatic_failed type=%s", type(exc).__name__)
             MessageDialog.warning(
                 self._main_window,
                 "O cofre abriu normalmente, mas o backup automático não pôde ser criado.",
@@ -433,18 +453,46 @@ class ApplicationController:
     def _handle_auto_lock(self) -> None:
         if self._main_window is None:
             return
-        self._pending_login_notice = "Cofre bloqueado automaticamente após 5 minutos sem atividade."
+        get_logger().info("vault.auto_locked")
+        self._pending_login_notice = (
+            "Cofre bloqueado automaticamente após "
+            f"{self._settings.auto_lock_minutes} minuto(s) sem atividade."
+        )
         self._main_window.lock_vault()
 
     def _handle_vault_restored(self, notice: str) -> None:
+        get_logger().info("vault.restored")
         self._pending_login_notice = notice
         self.show_login()
+
+    def _handle_settings_changed(self, value: object) -> None:
+        if not isinstance(value, AppSettings) or self._main_window is None:
+            get_logger().warning("settings.rejected_invalid_object")
+            return
+        try:
+            self._settings_service.save(value)
+        except SettingsError as exc:
+            get_logger().error("settings.save_failed type=%s", type(exc).__name__)
+            MessageDialog.error(
+                self._main_window,
+                "Não foi possível salvar as configurações locais.",
+                title="Configurações não alteradas",
+            )
+            return
+
+        self._settings = value
+        self._auto_lock.set_timeout_seconds(value.auto_lock_minutes * 60)
+        self._clipboard.set_timeout_seconds(value.clipboard_seconds)
+        self._backup_service.set_retention(value.backup_retention)
+        self._main_window.apply_settings(value)
+        get_logger().info("settings.updated")
 
     def shutdown(self) -> None:
         """Descarta segredos transitórios antes de encerrar o processo."""
         if self._shutting_down:
             return
         self._shutting_down = True
+        get_logger().info("application.shutdown")
         self._auto_lock.stop()
         self._clipboard.clear_secret()
         if self._main_window is not None:
@@ -469,6 +517,25 @@ def main() -> int:
         if APP_ICON_PATH.is_file()
         else lucide_icon("shield-check", "#60a5fa", 32)
     )
+    startup_notices: list[str] = []
+    try:
+        logger = configure_logging(LOG_DIRECTORY)
+        logger.info("application.start")
+    except OSError:
+        logger = get_logger()
+        startup_notices.append(
+            "Os logs técnicos não puderam ser inicializados nesta execução."
+        )
+
+    settings_service = SettingsService(SETTINGS_PATH)
+    try:
+        settings = settings_service.load()
+    except SettingsError as exc:
+        settings = AppSettings()
+        logger.warning("settings.load_failed type=%s defaults_applied", type(exc).__name__)
+        startup_notices.append(
+            "As configurações locais estavam inválidas; os valores seguros padrão foram aplicados."
+        )
     try:
         migration = migrate_legacy_storage(
             LEGACY_VAULT_PATH,
@@ -476,7 +543,8 @@ def main() -> int:
             DEFAULT_VAULT_PATH,
             BACKUP_DIRECTORY,
         )
-    except StorageMigrationError:
+    except StorageMigrationError as exc:
+        logger.error("storage.migration_failed type=%s", type(exc).__name__)
         MessageDialog.error(
             None,
             "O cofre existente não pôde ser migrado para a pasta segura do Windows.",
@@ -485,8 +553,8 @@ def main() -> int:
         )
         return 1
 
-    migration_notice = None
     if migration.vault_copied:
+        logger.info("storage.migration_completed backups=%d", migration.backups_copied)
         migration_notice = (
             "Seu cofre foi copiado para a pasta privada do KeyCiphra no Windows. "
             "Os arquivos antigos foram preservados."
@@ -495,7 +563,13 @@ def main() -> int:
             migration_notice += (
                 f" {migration.backups_skipped} backup(s) antigo(s) inválido(s) foram ignorados."
             )
-    controller = ApplicationController(application, initial_notice=migration_notice)
+        startup_notices.append(migration_notice)
+    controller = ApplicationController(
+        application,
+        settings=settings,
+        settings_service=settings_service,
+        initial_notice=" ".join(startup_notices) or None,
+    )
     interrupt_poller = install_graceful_interrupt_handler(application)
     application.aboutToQuit.connect(controller.shutdown)
     controller.start()

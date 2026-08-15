@@ -20,6 +20,7 @@ from app.services.vault_service import VaultService, VaultUnlockError
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
 from app.ui.window_chrome import install_window_chrome
+from app.utils.logging_config import get_logger
 
 
 class LoginWindow(QMainWindow):
@@ -216,9 +217,12 @@ class LoginWindow(QMainWindow):
                     )
                     return
                 session = self._vault_service.create(password)
+                get_logger().info("vault.created")
             else:
                 session = self._vault_service.unlock(password)
+                get_logger().info("vault.unlocked")
         except VaultUnlockError:
+            get_logger().warning("vault.unlock_failed")
             MessageDialog.warning(
                 self,
                 "Não foi possível desbloquear o cofre.",
@@ -227,6 +231,7 @@ class LoginWindow(QMainWindow):
             )
             return
         except (TypeError, ValueError, RuntimeError) as exc:
+            get_logger().warning("vault.operation_rejected type=%s", type(exc).__name__)
             MessageDialog.warning(self, str(exc))
             return
         finally:

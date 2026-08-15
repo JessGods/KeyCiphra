@@ -157,3 +157,13 @@ def test_restore_rejects_tampered_credential(tmp_path: Path) -> None:
             imported_path,
             MASTER_PASSWORD,
         )
+
+
+def test_backup_retention_can_be_updated_for_future_backups(tmp_path: Path) -> None:
+    vault_path = tmp_path / "vault.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    service = BackupService(vault_path, tmp_path / "backups", retention=10)
+
+    service.set_retention(4)
+
+    assert service.retention == 4

@@ -38,6 +38,17 @@ class AutoLockManager(QObject):
     def is_active(self) -> bool:
         return self._active
 
+    @property
+    def timeout_seconds(self) -> int:
+        return self._timer.interval() // 1_000
+
+    def set_timeout_seconds(self, timeout_seconds: int) -> None:
+        if timeout_seconds < 1:
+            raise ValueError("O tempo de bloqueio deve ser positivo.")
+        self._timer.setInterval(timeout_seconds * 1_000)
+        if self._active:
+            self._timer.start()
+
     def start(self) -> None:
         self._active = True
         self._timer.start()

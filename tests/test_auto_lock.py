@@ -43,3 +43,14 @@ def test_auto_lock_rejects_invalid_timeout() -> None:
 
     with pytest.raises(ValueError):
         AutoLockManager(application, timeout_seconds=0)
+
+
+def test_auto_lock_timeout_can_be_updated_while_active() -> None:
+    application = QApplication.instance() or QApplication([])
+    manager = AutoLockManager(application, timeout_seconds=300)
+    manager.start()
+
+    manager.set_timeout_seconds(720)
+
+    assert manager.timeout_seconds == 720
+    assert manager.is_active

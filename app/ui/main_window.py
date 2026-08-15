@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.models.credential import Credential
+from app.models.app_settings import AppSettings
 from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
 from app.security.session import VaultSession
 from app.services.backup_service import (
@@ -37,8 +38,10 @@ from app.services.clipboard_service import ClipboardService
 from app.ui.credential_dialog import CredentialDialog
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
+from app.ui.settings_dialog import SettingsDialog
 from app.ui.vault_restore_dialog import VaultRestoreDialog
 from app.ui.window_chrome import install_window_chrome
+from app.utils.logging_config import get_logger
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +49,7 @@ class MainWindow(QMainWindow):
 
     lock_requested = Signal()
     vault_restored = Signal(str)
+    settings_changed = Signal(object)
 
     def __init__(
         self,
@@ -53,12 +57,14 @@ class MainWindow(QMainWindow):
         session: VaultSession,
         clipboard_service: ClipboardService,
         backup_service: BackupService | None = None,
+        settings: AppSettings | None = None,
     ) -> None:
         super().__init__()
         self._repository = repository
         self._session = session
         self._clipboard = clipboard_service
         self._backup_service = backup_service
+        self._settings = settings or AppSettings()
         self._credentials: list[Credential] = []
         self._action_column_width = 0
 
@@ -123,6 +129,14 @@ class MainWindow(QMainWindow):
             transfer_menu.addAction(import_action)
             transfer_button.setMenu(transfer_menu)
             header.addWidget(transfer_button)
+        settings_button = QPushButton()
+        settings_button.setAccessibleName("Configurações")
+        settings_button.setToolTip("Configurações de segurança")
+        settings_button.setIcon(lucide_icon("settings-2", "#e5e7eb", 19))
+        settings_button.setIconSize(QSize(19, 19))
+        settings_button.setFixedSize(42, 42)
+        settings_button.clicked.connect(self._open_settings)
+        header.addWidget(settings_button)
         lock_button = QPushButton("Bloquear")
         self._configure_button(lock_button, "lock")
         lock_button.clicked.connect(self._lock)
@@ -290,7 +304,9 @@ class MainWindow(QMainWindow):
             self._repository.add(dialog.credential())
             self._load_credentials()
             self.statusBar().showMessage("Credencial salva com segurança.", 4_000)
-        except Exception:
+            get_logger().info("credential.created")
+        except Exception as exc:
+            get_logger().error("credential.create_failed type=%s", type(exc).__name__)
             MessageDialog.error(self, "Não foi possível salvar a credencial.")
 
     def _edit(self, credential: Credential) -> None:
@@ -301,7 +317,9 @@ class MainWindow(QMainWindow):
             self._repository.update(dialog.credential())
             self._load_credentials()
             self.statusBar().showMessage("Credencial atualizada.", 4_000)
-        except Exception:
+            get_logger().info("credential.updated")
+        except Exception as exc:
+            get_logger().error("credential.update_failed type=%s", type(exc).__name__)
             MessageDialog.error(self, "Não foi possível atualizar a credencial.")
 
     def _delete(self, credential: Credential) -> None:
@@ -316,12 +334,26 @@ class MainWindow(QMainWindow):
         try:
             self._repository.delete(credential.id)
             self._load_credentials()
-        except Exception:
+            get_logger().info("credential.deleted")
+        except Exception as exc:
+            get_logger().error("credential.delete_failed type=%s", type(exc).__name__)
             MessageDialog.error(self, "Não foi possível excluir a credencial.")
 
     def _copy_password(self, credential: Credential) -> None:
         self._clipboard.copy_secret(credential.password)
-        self.statusBar().showMessage("Senha copiada; limpeza automática em 25 segundos.", 5_000)
+        self.statusBar().showMessage(
+            f"Senha copiada; limpeza automática em {self._clipboard.timeout_seconds} segundos.",
+            5_000,
+        )
+
+    def _open_settings(self) -> None:
+        dialog = SettingsDialog(self._settings, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.settings_changed.emit(dialog.settings)
+
+    def apply_settings(self, settings: AppSettings) -> None:
+        self._settings = settings
+        self.statusBar().showMessage("Configurações de segurança atualizadas.", 6_000)
 
     def _create_backup(self) -> None:
         if self._backup_service is None:
@@ -329,7 +361,9 @@ class MainWindow(QMainWindow):
         try:
             backup = self._backup_service.create_backup()
             self.notify_backup_created(backup.name)
-        except BackupError:
+            get_logger().info("backup.manual_created")
+        except BackupError as exc:
+            get_logger().error("backup.manual_failed type=%s", type(exc).__name__)
             MessageDialog.error(
                 self,
                 "Não foi possível criar um backup íntegro do cofre.",
@@ -358,7 +392,9 @@ class MainWindow(QMainWindow):
                 f"Cofre criptografado exportado: {exported}",
                 9_000,
             )
-        except BackupError:
+            get_logger().info("vault.exported")
+        except BackupError as exc:
+            get_logger().error("vault.export_failed type=%s", type(exc).__name__)
             MessageDialog.error(
                 self,
                 "Não foi possível exportar uma cópia íntegra do cofre.",
@@ -380,6 +416,7 @@ class MainWindow(QMainWindow):
                 dialog.master_password,
             )
         except BackupAuthenticationError:
+            get_logger().warning("vault.restore_authentication_failed")
             MessageDialog.error(
                 self,
                 "A senha está incorreta ou o arquivo contém dados adulterados.",
@@ -387,7 +424,8 @@ class MainWindow(QMainWindow):
                 detail="O cofre atual permaneceu intacto.",
             )
             return
-        except BackupError:
+        except BackupError as exc:
+            get_logger().error("vault.restore_failed type=%s", type(exc).__name__)
             MessageDialog.error(
                 self,
                 "Não foi possível restaurar este arquivo com segurança.",
@@ -446,6 +484,7 @@ class MainWindow(QMainWindow):
         self._table.clearContents()
         self._clipboard.clear_secret()
         self._session.lock()
+        get_logger().info("vault.locked")
         self.lock_requested.emit()
 
     def lock_vault(self) -> None:

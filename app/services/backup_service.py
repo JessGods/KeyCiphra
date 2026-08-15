@@ -44,6 +44,15 @@ class BackupService:
         self._backup_directory = Path(backup_directory)
         self._retention = retention
 
+    @property
+    def retention(self) -> int:
+        return self._retention
+
+    def set_retention(self, retention: int) -> None:
+        if retention < 1:
+            raise ValueError("A retenção deve preservar pelo menos um backup.")
+        self._retention = retention
+
     def create_backup(self, now: datetime | None = None) -> Path:
         """Cria, valida e publica atomicamente um snapshot do cofre."""
         if not self._vault_path.is_file():

@@ -15,8 +15,10 @@ from PySide6.QtWidgets import (  # noqa: E402
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QSpinBox,
 )
 
+from app.models.app_settings import AppSettings  # noqa: E402
 from app.models.credential import Credential  # noqa: E402
 from app.repositories.credential_repository import CredentialRepository  # noqa: E402
 from app.security.kdf import KDFParameters  # noqa: E402
@@ -28,6 +30,7 @@ from app.ui.login_window import LoginWindow  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
 from app.ui.password_generator_dialog import PasswordGeneratorDialog  # noqa: E402
+from app.ui.settings_dialog import SettingsDialog  # noqa: E402
 from app.ui.vault_restore_dialog import VaultRestoreDialog  # noqa: E402
 from app.ui.window_chrome import WindowChrome  # noqa: E402
 
@@ -58,10 +61,11 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
             category="Teste",
         )
     )
+    clipboard_service = ClipboardService(application.clipboard())
     main = MainWindow(
         repository,
         session,
-        ClipboardService(application.clipboard()),
+        clipboard_service,
         BackupService(database_path, tmp_path / "backups"),
     )
     credential_dialog = CredentialDialog(parent=main)
@@ -74,6 +78,7 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         parent=login,
     )
     restore_dialog = VaultRestoreDialog(database_path, main)
+    settings_dialog = SettingsDialog(AppSettings(), main)
 
     assert login.windowTitle() == "KeyCiphra — Cofre local"
     assert main.initialize()
@@ -83,10 +88,12 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert credential_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert generator_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert restore_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert settings_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert login.findChild(WindowChrome) is not None
     assert main.findChild(WindowChrome) is not None
     assert credential_dialog.findChild(WindowChrome) is not None
     assert restore_dialog.findChild(WindowChrome) is not None
+    assert settings_dialog.findChild(WindowChrome) is not None
     assert len(generator_dialog.password) == 20
     actions = main._table.cellWidget(0, 3)
     assert actions is not None
@@ -108,6 +115,8 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     restore_password = restore_dialog.findChild(QLineEdit, "restorePassword")
     assert restore_password is not None
     assert restore_password.echoMode() == QLineEdit.EchoMode.Password
+    assert len(settings_dialog.findChildren(QSpinBox)) == 3
+    assert settings_dialog.settings == AppSettings()
 
     backup_button = next(
         button for button in main.findChildren(QPushButton) if button.text() == "Backup"
@@ -124,6 +133,16 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     }
     file_dialog = main._file_dialog("Selecionar cofre")
     assert file_dialog.testOption(QFileDialog.Option.DontUseNativeDialog)
+    settings_button = next(
+        button
+        for button in main.findChildren(QPushButton)
+        if button.accessibleName() == "Configurações"
+    )
+    assert settings_button.width() == settings_button.height() == 42
+
+    clipboard_service.set_timeout_seconds(45)
+    assert clipboard_service.timeout_seconds == 45
+    main.apply_settings(AppSettings(clipboard_seconds=45))
 
     clipboard = application.clipboard()
     main._clipboard.copy_secret("segredo-temporario-ficticio")
@@ -135,6 +154,7 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     message_dialog.close()
     file_dialog.close()
     restore_dialog.close()
+    settings_dialog.close()
     generator_dialog.close()
     credential_dialog.close()
     main.close()

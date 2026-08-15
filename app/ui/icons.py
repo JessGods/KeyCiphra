@@ -49,6 +49,10 @@ _ICON_NODES = {
     ),
     "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
     "search": '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    "settings-2": (
+        '<path d="M20 7h-9"/><path d="M14 17H5"/>'
+        '<circle cx="7" cy="7" r="3"/><circle cx="17" cy="17" r="3"/>'
+    ),
     "restore": (
         '<rect width="13" height="13" x="3" y="8" rx="2"/>'
         '<path d="M8 8V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3"/>'

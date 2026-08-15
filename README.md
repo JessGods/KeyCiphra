@@ -22,6 +22,8 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Backup de segurança automático antes de substituir o cofre em uma restauração.
 - Dados privados armazenados em `%LOCALAPPDATA%\KeyCiphra` no Windows.
 - Executável portátil preparado com ícone e metadados próprios do KeyCiphra.
+- Configuração de bloqueio, clipboard e retenção com limites seguros.
+- Logs técnicos rotativos com sanitização defensiva de segredos.
 - Testes de persistência após reabertura, CRUD, adulteração e ausência de
   plaintext sensível no arquivo.
 
@@ -147,6 +149,19 @@ em nuvem, mas não deve ser aberto simultaneamente por dois computadores. A
 transferência não cria uma versão em plaintext e a senha mestra deve ser
 compartilhada por um canal separado — ou, preferencialmente, não compartilhada.
 
+## Configurações e logs
+
+O botão de configurações permite ajustar o bloqueio automático entre 1 e 60
+minutos, a limpeza do clipboard entre 10 e 120 segundos e a retenção entre 1 e
+50 backups. As preferências são gravadas atomicamente em
+`%LOCALAPPDATA%\KeyCiphra\settings.json` e não contêm senhas ou chaves.
+
+Eventos técnicos ficam em `%LOCALAPPDATA%\KeyCiphra\logs\keyciphra.log`, com
+rotação limitada a três arquivos anteriores de 512 KiB. O aplicativo registra
+eventos fixos e tipos de erro; um filtro adicional remove valores associados a
+senha, token, segredo, chave e clipboard. Tracebacks não são persistidos porque
+podem carregar entradas arbitrárias.
+
 ## Modelo de segurança
 
 O objetivo inicial é proteger credenciais quando o arquivo do cofre ou um
@@ -185,8 +200,8 @@ permitir atualização futura.
 2. Cofre, SQLite e Repository Pattern (concluído).
 3. Busca local após desbloqueio e gerador de senhas (concluído).
 4. Interface PySide6 (MVP concluído).
-5. Bloqueio automático, clipboard temporário, backup e transferência de cofre
-   (concluído); logs sanitizados ainda pendentes.
+5. Bloqueio automático, clipboard temporário, backup, transferência de cofre,
+   configurações e logs sanitizados (concluído).
 6. Caminhos de produção e executável portátil do Windows (concluído); instalador
    assinado ainda pendente.
 7. Hardening, análise estática, dependências e revisão de segurança.
