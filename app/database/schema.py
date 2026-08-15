@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS vault_metadata (
@@ -34,6 +34,17 @@ CREATE TABLE IF NOT EXISTS credentials (
 
 CREATE INDEX IF NOT EXISTS idx_credentials_updated_at
     ON credentials(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    payload_nonce BLOB NOT NULL,
+    payload_ciphertext BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_categories_updated_at
+    ON categories(updated_at DESC);
 """
 
 

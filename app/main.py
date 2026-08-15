@@ -10,10 +10,12 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.models.app_settings import AppSettings
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.auto_lock import AutoLockManager
 from app.security.session import VaultSession
 from app.services.backup_service import BackupError, BackupService
+from app.services.category_service import CategoryService
 from app.services.clipboard_service import ClipboardService
 from app.services.settings_service import SettingsError, SettingsService
 from app.services.storage_migration_service import (
@@ -245,14 +247,32 @@ QLabel#restoreSafetyNote {
     padding: 10px;
 }
 QLabel#inlineError { color: #fca5a5; }
-QLineEdit, QTextEdit, QSpinBox, QTableWidget {
+QLineEdit, QTextEdit, QSpinBox, QComboBox, QListWidget, QTableWidget {
     background-color: #0f172a;
     border: 1px solid #374151;
     border-radius: 7px;
     padding: 8px;
     selection-background-color: #2563eb;
 }
-QLineEdit:focus, QTextEdit:focus, QSpinBox:focus { border: 1px solid #60a5fa; }
+QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QComboBox:focus, QListWidget:focus {
+    border: 1px solid #60a5fa;
+}
+QComboBox { padding-right: 30px; }
+QComboBox::drop-down { border: 0; width: 28px; }
+QComboBox QAbstractItemView {
+    color: #e5e7eb;
+    background-color: #111b2e;
+    border: 1px solid #475569;
+    selection-background-color: #2563eb;
+    selection-color: #ffffff;
+    padding: 4px;
+}
+QListWidget {
+    alternate-background-color: #162033;
+    outline: 0;
+}
+QListWidget::item { padding: 10px 8px; border-radius: 6px; }
+QListWidget::item:selected { background-color: #2563eb; color: #ffffff; }
 QPushButton {
     background-color: #374151;
     border: 1px solid transparent;
@@ -433,12 +453,17 @@ class ApplicationController:
     def show_main(self, session_value: object) -> None:
         session = as_vault_session(session_value)
         repository = CredentialRepository(DEFAULT_VAULT_PATH, session)
+        category_service = CategoryService(
+            CategoryRepository(DEFAULT_VAULT_PATH, session),
+            repository,
+        )
         self._main_window = MainWindow(
             repository,
             session,
             self._clipboard,
             self._backup_service,
             self._settings,
+            category_service=category_service,
         )
         self._main_window.lock_requested.connect(self.show_login)
         self._main_window.vault_restored.connect(self._handle_vault_restored)

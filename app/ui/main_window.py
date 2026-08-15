@@ -9,6 +9,7 @@ from PySide6.QtCore import QSize, QStandardPaths, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 from app.models.credential import Credential
 from app.models.app_settings import AppSettings
 from app.repositories.credential_repository import CredentialRepository, RepositoryIntegrityError
+from app.repositories.category_repository import CategoryRepositoryIntegrityError
 from app.security.session import VaultSession
 from app.services.backup_service import (
     BackupAuthenticationError,
@@ -35,6 +37,8 @@ from app.services.backup_service import (
     BackupService,
 )
 from app.services.clipboard_service import ClipboardService
+from app.services.category_service import CategoryService
+from app.ui.category_manager_dialog import CategoryManagerDialog
 from app.ui.credential_dialog import CredentialDialog
 from app.ui.icons import lucide_icon
 from app.ui.message_dialog import MessageDialog
@@ -58,6 +62,8 @@ class MainWindow(QMainWindow):
         clipboard_service: ClipboardService,
         backup_service: BackupService | None = None,
         settings: AppSettings | None = None,
+        *,
+        category_service: CategoryService | None = None,
     ) -> None:
         super().__init__()
         self._repository = repository
@@ -65,10 +71,12 @@ class MainWindow(QMainWindow):
         self._clipboard = clipboard_service
         self._backup_service = backup_service
         self._settings = settings or AppSettings()
+        self._category_service = category_service
         self._credentials: list[Credential] = []
         self._action_column_width = 0
 
         self._search = QLineEdit()
+        self._category_filter = QComboBox()
         self._table = QTableWidget(0, 4)
         self._status = QLabel()
 
@@ -154,6 +162,28 @@ class MainWindow(QMainWindow):
         )
         self._search.textChanged.connect(self._apply_filter)
         toolbar.addWidget(self._search, 1)
+
+        self._category_filter.setAccessibleName("Filtrar por categoria")
+        self._category_filter.setToolTip("Exibir somente credenciais de uma categoria")
+        self._category_filter.setMinimumWidth(170)
+        self._category_filter.setMinimumHeight(
+            max(42, self._category_filter.fontMetrics().height() + 22)
+        )
+        self._category_filter.addItem("Todas as categorias", None)
+        self._category_filter.addItem("Sem categoria", "")
+        self._category_filter.currentIndexChanged.connect(self._apply_filter)
+        toolbar.addWidget(self._category_filter)
+
+        categories_button = QPushButton()
+        categories_button.setAccessibleName("Gerenciar categorias")
+        categories_button.setToolTip("Criar, editar ou excluir categorias")
+        categories_button.setIcon(lucide_icon("tags", "#e5e7eb", 19))
+        categories_button.setIconSize(QSize(19, 19))
+        categories_button.setFixedSize(42, 42)
+        categories_button.setEnabled(self._category_service is not None)
+        categories_button.clicked.connect(lambda: self._manage_categories(self))
+        toolbar.addWidget(categories_button)
+
         add_button = QPushButton("Nova credencial")
         add_button.setObjectName("primaryButton")
         self._configure_button(add_button, "plus")
@@ -214,10 +244,13 @@ class MainWindow(QMainWindow):
     def _load_credentials(self) -> bool:
         try:
             self._credentials = self._repository.list_all()
-        except RepositoryIntegrityError:
+            if self._category_service is not None:
+                self._category_service.synchronize(self._credentials)
+                self._refresh_category_filter()
+        except (CategoryRepositoryIntegrityError, RepositoryIntegrityError):
             MessageDialog.error(
                 self,
-                "Uma credencial armazenada não pôde ser autenticada. O cofre será bloqueado.",
+                "Um item armazenado não pôde ser autenticado. O cofre será bloqueado.",
                 title="Falha de integridade",
             )
             self._credentials.clear()
@@ -228,17 +261,53 @@ class MainWindow(QMainWindow):
 
     def _apply_filter(self) -> None:
         query = self._search.text().strip().casefold()
+        selected_category = self._category_filter.currentData()
         filtered = [
             credential
             for credential in self._credentials
-            if not query
-            or query in credential.title.casefold()
-            or query in credential.username.casefold()
-            or query in credential.category.casefold()
+            if (
+                selected_category is None
+                or credential.category.strip().casefold()
+                == str(selected_category).strip().casefold()
+            )
+            and (
+                not query
+                or query in credential.title.casefold()
+                or query in credential.username.casefold()
+                or query in credential.category.casefold()
+            )
         ]
         self._populate_table(filtered)
         total = len(self._credentials)
-        self._status.setText(f"{len(filtered)} de {total} credencial(is)")
+        category_label = (
+            "Todas as categorias"
+            if selected_category is None
+            else str(self._category_filter.currentText())
+        )
+        self._status.setText(
+            f"{len(filtered)} de {total} credencial(is)  •  {category_label}"
+        )
+
+    def _refresh_category_filter(self) -> None:
+        selected = self._category_filter.currentData()
+        names = self._category_names()
+        self._category_filter.blockSignals(True)
+        self._category_filter.clear()
+        self._category_filter.addItem("Todas as categorias", None)
+        self._category_filter.addItem("Sem categoria", "")
+        for name in names:
+            self._category_filter.addItem(name, name)
+        index = self._category_filter.findData(selected)
+        self._category_filter.setCurrentIndex(index if index >= 0 else 0)
+        self._category_filter.blockSignals(False)
+
+    def _category_names(self) -> list[str]:
+        if self._category_service is None:
+            return sorted(
+                {item.category.strip() for item in self._credentials if item.category.strip()},
+                key=str.casefold,
+            )
+        return [category.name for category in self._category_service.list_all()]
 
     def _populate_table(self, credentials: list[Credential]) -> None:
         self._table.setRowCount(len(credentials))
@@ -297,7 +366,11 @@ class MainWindow(QMainWindow):
         self._table.setColumnWidth(3, self._action_column_width)
 
     def _add(self) -> None:
-        dialog = CredentialDialog(parent=self)
+        dialog = CredentialDialog(
+            parent=self,
+            categories=self._category_names(),
+            manage_categories=self._manage_categories,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -310,7 +383,12 @@ class MainWindow(QMainWindow):
             MessageDialog.error(self, "Não foi possível salvar a credencial.")
 
     def _edit(self, credential: Credential) -> None:
-        dialog = CredentialDialog(credential, self)
+        dialog = CredentialDialog(
+            credential,
+            self,
+            categories=self._category_names(),
+            manage_categories=self._manage_categories,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
@@ -345,6 +423,19 @@ class MainWindow(QMainWindow):
             f"Senha copiada; limpeza automática em {self._clipboard.timeout_seconds} segundos.",
             5_000,
         )
+
+    def _manage_categories(self, parent: QWidget) -> list[str]:
+        if self._category_service is None:
+            return self._category_names()
+        dialog = CategoryManagerDialog(self._category_service, parent)
+        dialog.exec()
+        if dialog.changed:
+            self._load_credentials()
+            self.statusBar().showMessage("Categorias do cofre atualizadas.", 5_000)
+        else:
+            self._refresh_category_filter()
+            self._apply_filter()
+        return self._category_names()
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self._settings, self)

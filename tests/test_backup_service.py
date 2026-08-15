@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from app.models.credential import Credential
+from app.models.category import Category
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.kdf import KDFParameters
 from app.services.backup_service import (
@@ -151,6 +153,30 @@ def test_restore_rejects_tampered_credential(tmp_path: Path) -> None:
     )
     with sqlite3.connect(imported_path) as connection:
         connection.execute("UPDATE credentials SET payload_ciphertext = zeroblob(32)")
+
+    with pytest.raises(BackupAuthenticationError):
+        BackupService(vault_path, tmp_path / "backups").restore_backup(
+            imported_path,
+            MASTER_PASSWORD,
+        )
+
+
+def test_restore_rejects_tampered_category(tmp_path: Path) -> None:
+    vault_path = tmp_path / "data" / "vault.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    imported_path = tmp_path / "received-category.db"
+    imported_session = VaultService(imported_path).create(
+        MASTER_PASSWORD,
+        FAST_TEST_PARAMETERS,
+    )
+    category = CategoryRepository(imported_path, imported_session).add(
+        Category.create("Categoria adulterada")
+    )
+    with sqlite3.connect(imported_path) as connection:
+        connection.execute(
+            "UPDATE categories SET payload_ciphertext = zeroblob(32) WHERE id = ?",
+            (category.id,),
+        )
 
     with pytest.raises(BackupAuthenticationError):
         BackupService(vault_path, tmp_path / "backups").restore_backup(

@@ -12,6 +12,8 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Erro genérico para falhas de autenticação, sem revelar sua causa.
 - Metadados versionados e verificador de desbloqueio criptografado.
 - CRUD de credenciais persistido em SQLite.
+- Categorias criptografadas com criação, renomeação, exclusão e reclassificação.
+- Filtro por categoria combinado com a pesquisa local.
 - Todos os campos da credencial armazenados em um payload JSON criptografado.
 - Sessão invalidável ao bloquear o cofre.
 - Bloqueio automático após 5 minutos sem atividade.
@@ -86,7 +88,7 @@ produto. O build atual é portátil e ainda não constitui um instalador assinad
 ```text
 app/
 ├── database/                    # conexão e schema SQLite
-├── models/                      # Credential e VaultMetadata
+├── models/                      # Credential, Category e VaultMetadata
 ├── repositories/               # CRUD criptografado
 ├── security/
 │   ├── kdf.py                   # Argon2id e geração de salt
@@ -94,6 +96,7 @@ app/
 │   └── auto_lock.py             # temporizador de inatividade
 └── services/
     ├── backup_service.py        # snapshots SQLite consistentes
+    ├── category_service.py      # catálogo e reclassificação de categorias
     ├── crypto_service.py        # AES-256-GCM
     └── vault_service.py         # criação e desbloqueio
 tests/
@@ -121,9 +124,10 @@ ignorados pelo Git. O banco contém:
 - versão do formato e do schema;
 - verificador de desbloqueio AES-GCM;
 - IDs e timestamps técnicos das credenciais;
-- nonce e ciphertext autenticado de cada credencial.
+- nonce e ciphertext autenticado de cada credencial e categoria.
 
-Título, usuário, senha, URL, categoria e notas não são gravados em plaintext.
+Título, usuário, senha, URL, categoria, nomes do catálogo e notas não são
+gravados em plaintext.
 Uma nova instância do serviço consegue desbloquear o mesmo arquivo e recuperar
 as credenciais, portanto os dados persistem entre execuções.
 
@@ -140,7 +144,7 @@ mais recentes são preservados. A pasta inteira é ignorada pelo Git.
 
 O menu **Transferir** exporta uma cópia consistente para um arquivo `.db` e
 importa cofres criados pelo KeyCiphra. Na restauração, a senha mestra do arquivo
-é exigida e todas as credenciais são autenticadas antes de qualquer alteração.
+é exigida e todas as credenciais e categorias são autenticadas antes de qualquer alteração.
 O cofre em uso é preservado automaticamente na pasta de backups; após a troca,
 o aplicativo bloqueia a sessão e solicita a senha do cofre restaurado.
 
@@ -204,4 +208,5 @@ permitir atualização futura.
    configurações e logs sanitizados (concluído).
 6. Caminhos de produção e executável portátil do Windows (concluído); instalador
    assinado ainda pendente.
-7. Hardening, análise estática, dependências e revisão de segurança.
+7. Categorias criptografadas e filtros combinados (concluído).
+8. Hardening, análise estática, dependências e revisão de segurança.

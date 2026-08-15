@@ -103,6 +103,31 @@ class CredentialRepository:
         if cursor.rowcount != 1:
             raise CredentialNotFoundError("Credencial não encontrada.")
 
+    def replace_category(self, old_name: str, new_name: str) -> int:
+        """Reclassifica em uma transação todos os payloads de uma categoria."""
+        old_key = old_name.strip().casefold()
+        replacements: list[tuple[bytes, bytes, str, str]] = []
+        for credential in self.list_all():
+            if credential.category.strip().casefold() != old_key:
+                continue
+            updated = replace(credential, category=new_name, updated_at=utc_now_iso())
+            encrypted = self._encrypt(updated)
+            replacements.append(
+                (encrypted.nonce, encrypted.ciphertext, updated.updated_at, updated.id)
+            )
+        if not replacements:
+            return 0
+        with connect_database(self._database_path) as connection:
+            connection.executemany(
+                """
+                UPDATE credentials
+                SET payload_nonce = ?, payload_ciphertext = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                replacements,
+            )
+        return len(replacements)
+
     def _encrypt(self, credential: Credential) -> EncryptedData:
         payload = json.dumps(
             credential.to_dict(),

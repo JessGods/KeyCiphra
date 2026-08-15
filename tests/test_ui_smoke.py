@@ -11,8 +11,10 @@ from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
+    QComboBox,
     QFileDialog,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -20,12 +22,15 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 from app.models.app_settings import AppSettings  # noqa: E402
 from app.models.credential import Credential  # noqa: E402
+from app.repositories.category_repository import CategoryRepository  # noqa: E402
 from app.repositories.credential_repository import CredentialRepository  # noqa: E402
 from app.security.kdf import KDFParameters  # noqa: E402
 from app.services.backup_service import BackupService  # noqa: E402
 from app.services.clipboard_service import ClipboardService  # noqa: E402
+from app.services.category_service import CategoryService  # noqa: E402
 from app.services.vault_service import VaultService  # noqa: E402
 from app.ui.credential_dialog import CredentialDialog  # noqa: E402
+from app.ui.category_manager_dialog import CategoryManagerDialog  # noqa: E402
 from app.ui.login_window import LoginWindow  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
@@ -62,13 +67,21 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         )
     )
     clipboard_service = ClipboardService(application.clipboard())
+    category_service = CategoryService(CategoryRepository(database_path, session), repository)
     main = MainWindow(
         repository,
         session,
         clipboard_service,
         BackupService(database_path, tmp_path / "backups"),
+        category_service=category_service,
     )
-    credential_dialog = CredentialDialog(parent=main)
+    assert main.initialize()
+    credential_dialog = CredentialDialog(
+        parent=main,
+        categories=main._category_names(),
+        manage_categories=main._manage_categories,
+    )
+    category_dialog = CategoryManagerDialog(category_service, main)
     generator_dialog = PasswordGeneratorDialog(credential_dialog)
     message_dialog = MessageDialog(
         "Não foi possível desbloquear o cofre.",
@@ -81,7 +94,6 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     settings_dialog = SettingsDialog(AppSettings(), main)
 
     assert login.windowTitle() == "KeyCiphra — Cofre local"
-    assert main.initialize()
     assert main.windowTitle() == "KeyCiphra — Cofre desbloqueado"
     assert login.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert main.windowFlags() & Qt.WindowType.FramelessWindowHint
@@ -89,11 +101,13 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert generator_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert restore_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert settings_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert category_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert login.findChild(WindowChrome) is not None
     assert main.findChild(WindowChrome) is not None
     assert credential_dialog.findChild(WindowChrome) is not None
     assert restore_dialog.findChild(WindowChrome) is not None
     assert settings_dialog.findChild(WindowChrome) is not None
+    assert category_dialog.findChild(WindowChrome) is not None
     assert len(generator_dialog.password) == 20
     actions = main._table.cellWidget(0, 3)
     assert actions is not None
@@ -110,6 +124,20 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
         "Excluir credencial",
     }
     assert credential_dialog.findChild(QScrollArea, "formScroll") is not None
+    category_combo = credential_dialog.findChild(QComboBox, "credentialCategory")
+    assert category_combo is not None
+    assert category_combo.findText("Teste") >= 0
+    category_filter = next(
+        combo
+        for combo in main.findChildren(QComboBox)
+        if combo.accessibleName() == "Filtrar por categoria"
+    )
+    assert category_filter.findText("Teste") >= 0
+    category_filter.setCurrentText("Teste")
+    assert main._table.rowCount() == 1
+    category_filter.setCurrentText("Sem categoria")
+    assert main._table.rowCount() == 0
+    assert category_dialog.findChild(QListWidget, "categoryList") is not None
     assert message_dialog.objectName() == "messageDialog"
     assert message_dialog.minimumWidth() == 390
     restore_password = restore_dialog.findChild(QLineEdit, "restorePassword")
@@ -172,6 +200,7 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     file_dialog.close()
     restore_dialog.close()
     settings_dialog.close()
+    category_dialog.close()
     generator_dialog.close()
     credential_dialog.close()
     main.close()
@@ -194,6 +223,10 @@ def test_action_column_expands_with_large_font(tmp_path: Path) -> None:
         repository,
         session,
         ClipboardService(application.clipboard()),
+        category_service=CategoryService(
+            CategoryRepository(database_path, session),
+            repository,
+        ),
     )
 
     try:

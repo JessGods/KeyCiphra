@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -29,9 +31,17 @@ from app.ui.window_chrome import install_window_chrome
 class CredentialDialog(QDialog):
     """Edita dados apenas em memória até o usuário confirmar."""
 
-    def __init__(self, credential: Credential | None = None, parent=None) -> None:  # type: ignore[no-untyped-def]
+    def __init__(
+        self,
+        credential: Credential | None = None,
+        parent=None,  # type: ignore[no-untyped-def]
+        *,
+        categories: Iterable[str] = (),
+        manage_categories: Callable[[QWidget], list[str]] | None = None,
+    ) -> None:
         super().__init__(parent)
         self._original = credential
+        self._manage_categories_callback = manage_categories
         self._password_visible = False
         self.setObjectName("credentialDialog")
         self.setWindowTitle("Editar credencial" if credential else "Nova credencial")
@@ -43,7 +53,10 @@ class CredentialDialog(QDialog):
         self._password = self._line_edit("Digite ou gere uma senha")
         self._password.setEchoMode(QLineEdit.EchoMode.Password)
         self._url = self._line_edit("https://exemplo.com/login")
-        self._category = self._line_edit("Ex.: Pessoal, Trabalho, Financeiro")
+        self._category = QComboBox()
+        self._category.setObjectName("credentialCategory")
+        self._category.setMinimumHeight(max(44, self._category.fontMetrics().height() + 24))
+        self._refresh_categories(categories, credential.category if credential else "")
         self._notes = QTextEdit()
         self._notes.setPlaceholderText("Informações adicionais sobre esta credencial...")
         self._notes.setMinimumHeight(145)
@@ -101,7 +114,7 @@ class CredentialDialog(QDialog):
         form.addWidget(self._field("Título *", self._title))
 
         form.addWidget(self._field("Usuário", self._username))
-        form.addWidget(self._field("Categoria", self._category))
+        form.addWidget(self._category_field())
 
         password_field = QWidget()
         password_layout = QVBoxLayout(password_field)
@@ -179,6 +192,26 @@ class CredentialDialog(QDialog):
         layout.addWidget(widget)
         return container
 
+    def _category_field(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(7)
+        layout.addWidget(self._field_label("Categoria"))
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        row.addWidget(self._category, 1)
+        manage_button = QPushButton("Gerenciar")
+        manage_button.setIcon(lucide_icon("tags", "#e5e7eb", 17))
+        manage_button.setIconSize(QSize(17, 17))
+        self._fit_button(manage_button)
+        manage_button.setEnabled(self._manage_categories_callback is not None)
+        manage_button.setToolTip("Criar, renomear ou excluir categorias")
+        manage_button.clicked.connect(self._open_category_manager)
+        row.addWidget(manage_button)
+        layout.addLayout(row)
+        return container
+
     @staticmethod
     def _field_label(text: str) -> QLabel:
         label = QLabel(text)
@@ -191,7 +224,7 @@ class CredentialDialog(QDialog):
             "username": self._username.text(),
             "password": self._password.text(),
             "url": self._url.text().strip(),
-            "category": self._category.text().strip(),
+            "category": str(self._category.currentData() or ""),
             "notes": self._notes.toPlainText(),
         }
         if self._original is None:
@@ -203,8 +236,31 @@ class CredentialDialog(QDialog):
         self._username.setText(credential.username)
         self._password.setText(credential.password)
         self._url.setText(credential.url)
-        self._category.setText(credential.category)
+        index = self._category.findData(credential.category)
+        self._category.setCurrentIndex(max(0, index))
         self._notes.setPlainText(credential.notes)
+
+    def _refresh_categories(self, categories: Iterable[str], selected: str = "") -> None:
+        names = sorted(
+            {name.strip() for name in categories if name.strip()},
+            key=str.casefold,
+        )
+        if selected and selected not in names:
+            names.append(selected)
+            names.sort(key=str.casefold)
+        self._category.clear()
+        self._category.addItem("Sem categoria", "")
+        for name in names:
+            self._category.addItem(name, name)
+        index = self._category.findData(selected)
+        self._category.setCurrentIndex(max(0, index))
+
+    def _open_category_manager(self) -> None:
+        if self._manage_categories_callback is None:
+            return
+        selected = str(self._category.currentData() or "")
+        categories = self._manage_categories_callback(self)
+        self._refresh_categories(categories, selected)
 
     def _open_generator(self) -> None:
         dialog = PasswordGeneratorDialog(self)

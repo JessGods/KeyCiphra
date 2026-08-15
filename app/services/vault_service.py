@@ -16,6 +16,7 @@ from app.services.crypto_service import CryptoService, DecryptionError, Encrypte
 
 
 FORMAT_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = frozenset({1, SCHEMA_VERSION})
 MINIMUM_MASTER_PASSWORD_LENGTH = 12
 VERIFIER_PLAINTEXT = b"senhas-vault-unlock-verifier-v1"
 
@@ -120,6 +121,7 @@ class VaultService:
                 raise VaultUnlockError("Não foi possível desbloquear o cofre.")
         except (DecryptionError, TypeError, ValueError) as exc:
             raise VaultUnlockError("Não foi possível desbloquear o cofre.") from exc
+        self._migrate_schema(metadata.schema_version)
         return VaultSession(metadata.vault_id, key)
 
     def _load_metadata(self) -> VaultMetadata:
@@ -168,9 +170,26 @@ class VaultService:
     def _validate_supported_versions(metadata: VaultMetadata) -> None:
         if (
             metadata.format_version != FORMAT_VERSION
-            or metadata.schema_version != SCHEMA_VERSION
+            or metadata.schema_version not in SUPPORTED_SCHEMA_VERSIONS
         ):
             raise UnsupportedVaultError("A versão deste cofre não é suportada.")
+
+    def _migrate_schema(self, current_version: int) -> None:
+        """Aplica migrações aditivas somente após autenticar a senha mestra."""
+        if current_version == SCHEMA_VERSION:
+            return
+        with connect_database(self.database_path) as connection:
+            initialize_schema(connection)
+            cursor = connection.execute(
+                """
+                UPDATE vault_metadata
+                SET schema_version = ?
+                WHERE singleton = 1 AND schema_version = ?
+                """,
+                (SCHEMA_VERSION, current_version),
+            )
+        if cursor.rowcount != 1:
+            raise UnsupportedVaultError("Não foi possível atualizar o schema do cofre.")
 
     @staticmethod
     def _verifier_aad(vault_id: str) -> bytes:

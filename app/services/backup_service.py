@@ -12,6 +12,10 @@ from app.repositories.credential_repository import (
     CredentialRepository,
     RepositoryIntegrityError,
 )
+from app.repositories.category_repository import (
+    CategoryRepository,
+    CategoryRepositoryIntegrityError,
+)
 from app.services.vault_service import (
     UnsupportedVaultError,
     VaultNotFoundError,
@@ -88,7 +92,7 @@ class BackupService:
         )
         try:
             self._create_snapshot(selected, candidate)
-            self._authenticate_every_credential(candidate, master_password)
+            self._authenticate_vault_content(candidate, master_password)
             safety_backup = self.create_backup()
             candidate.chmod(0o600)
             os.replace(candidate, self._vault_path)
@@ -190,12 +194,14 @@ class BackupService:
                 source.close()
 
     @staticmethod
-    def _authenticate_every_credential(database_path: Path, master_password: str) -> None:
+    def _authenticate_vault_content(database_path: Path, master_password: str) -> None:
         session = None
         try:
             session = VaultService(database_path).unlock(master_password)
             CredentialRepository(database_path, session).list_all()
+            CategoryRepository(database_path, session).list_all()
         except (
+            CategoryRepositoryIntegrityError,
             RepositoryIntegrityError,
             UnsupportedVaultError,
             VaultNotFoundError,
