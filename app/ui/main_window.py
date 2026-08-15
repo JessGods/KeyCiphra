@@ -53,6 +53,7 @@ class MainWindow(QMainWindow):
     """Lista e altera credenciais sem acessar SQLite diretamente."""
 
     lock_requested = Signal()
+    switch_vault_requested = Signal()
     vault_restored = Signal(str)
     settings_changed = Signal(object)
 
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         settings: AppSettings | None = None,
         *,
         category_service: CategoryService | None = None,
+        vault_name: str = "Cofre principal",
     ) -> None:
         super().__init__()
         self._repository = repository
@@ -73,6 +75,7 @@ class MainWindow(QMainWindow):
         self._backup_service = backup_service
         self._settings = settings or AppSettings()
         self._category_service = category_service
+        self._vault_name = vault_name
         self._credentials: list[Credential] = []
         self._action_column_width = 0
         self._transfer_directory = self._default_transfer_directory()
@@ -82,7 +85,7 @@ class MainWindow(QMainWindow):
         self._table = QTableWidget(0, 4)
         self._status = QLabel()
 
-        self.setWindowTitle("KeyCiphra — Cofre desbloqueado")
+        self.setWindowTitle(f"KeyCiphra — {self._vault_name}")
         self.setMinimumSize(680, 480)
         self.resize(1040, 680)
         self._build_ui()
@@ -100,7 +103,7 @@ class MainWindow(QMainWindow):
         install_window_chrome(
             self,
             layout,
-            "KeyCiphra — Cofre desbloqueado",
+            f"KeyCiphra — {self._vault_name}",
             allow_maximize=True,
         )
 
@@ -147,6 +150,11 @@ class MainWindow(QMainWindow):
         settings_button.setFixedSize(42, 42)
         settings_button.clicked.connect(self._open_settings)
         header.addWidget(settings_button)
+        vaults_button = QPushButton("Cofres")
+        self._configure_button(vaults_button, "vault")
+        vaults_button.setToolTip("Bloquear e escolher outro cofre")
+        vaults_button.clicked.connect(self._switch_vault)
+        header.addWidget(vaults_button)
         lock_button = QPushButton("Bloquear")
         self._configure_button(lock_button, "lock")
         lock_button.clicked.connect(self._lock)
@@ -610,6 +618,14 @@ class MainWindow(QMainWindow):
         self._session.lock()
         get_logger().info("vault.locked")
         self.lock_requested.emit()
+
+    def _switch_vault(self) -> None:
+        self._credentials.clear()
+        self._table.clearContents()
+        self._clipboard.clear_secret()
+        self._session.lock()
+        get_logger().info("vault.switch_requested")
+        self.switch_vault_requested.emit()
 
     def lock_vault(self) -> None:
         """Bloqueia a sessão por solicitação externa, como inatividade."""

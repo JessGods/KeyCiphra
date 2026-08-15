@@ -15,6 +15,11 @@ _ICON_NODES = {
         '<path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>'
         '<path d="M12 9v4"/><path d="M12 17h.01"/>'
     ),
+    "archive": (
+        '<rect width="20" height="5" x="2" y="3" rx="1"/>'
+        '<path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>'
+        '<path d="M10 12h4"/>'
+    ),
     "check": '<path d="m20 6-11 11-5-5"/>',
     "copy": (
         '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/>'
@@ -82,6 +87,12 @@ _ICON_NODES = {
         '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>'
         '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'
         '<path d="M10 11v6"/><path d="M14 11v6"/>'
+    ),
+    "vault": (
+        '<rect width="20" height="18" x="2" y="3" rx="2"/>'
+        '<circle cx="12" cy="12" r="3"/>'
+        '<path d="M12 9V7"/><path d="M12 17v-2"/>'
+        '<path d="M9 12H7"/><path d="M17 12h-2"/>'
     ),
     "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     "x-circle": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',

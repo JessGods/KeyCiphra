@@ -63,6 +63,7 @@ class BackupService:
             raise BackupError("O arquivo do cofre não foi encontrado.")
 
         self._backup_directory.mkdir(parents=True, exist_ok=True)
+        self._backup_directory.chmod(0o700)
         timestamp = (now or datetime.now(UTC)).astimezone(UTC)
         name = timestamp.strftime("vault_%Y-%m-%d_%H-%M-%S_%f.db")
         destination = self._backup_directory / name

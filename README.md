@@ -24,6 +24,9 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Exportação portátil e restauração autenticada para uso em outro computador.
 - Backup de segurança automático antes de substituir o cofre em uma restauração.
 - Dados privados armazenados em `%LOCALAPPDATA%\KeyCiphra` no Windows.
+- Múltiplos cofres independentes, com seleção antes do desbloqueio.
+- Criação, renomeação e arquivamento autenticado de cofres pela interface.
+- Backups e sessões isolados por cofre.
 - Permissões da pasta privada restritas ao usuário, SYSTEM e administradores no Windows.
 - Migrações incrementais e transacionais do schema após autenticação do cofre.
 - Auditoria contínua no GitHub Actions para Windows e Linux.
@@ -93,17 +96,18 @@ usuário e reutilizado nos próximos inícios. Para confirmar a persistência:
 
 Não existe recuperação de senha mestra nesta versão.
 
-### Um cofre ou vários cofres?
+### Gerenciar cofres
 
-Nesta versão, o KeyCiphra usa **um cofre por perfil do Windows**. O botão
-**Nova credencial** cadastra qualquer login dentro desse cofre — por exemplo,
-uma conta bancária pode usar a categoria Financeiro. O menu **Transferir**
-exporta ou restaura um cofre completo; importar substitui o cofre atual somente
-depois de criar um backup de segurança.
+O KeyCiphra abre na tela **Seus cofres**. Nela é possível criar um cofre com
+nome e senha mestra próprios, selecionar qual será desbloqueado, renomeá-lo ou
+arquivá-lo. O cofre existente de versões anteriores é registrado automaticamente
+como **Cofre principal**, sem mover nem recriptografar seus dados.
 
-Ainda não existe uma tela para criar, nomear e alternar entre vários cofres.
-Esse gerenciador de cofres é um ciclo futuro e deverá manter cada arquivo,
-senha mestra, sessão e conjunto de backups isolados.
+O botão **Cofres** da tela principal bloqueia a sessão atual antes de voltar à
+seleção. Arquivar exige a senha mestra e a digitação exata do nome; os arquivos
+são movidos para uma área recuperável em vez de apagados permanentemente. Como
+os nomes precisam aparecer antes do desbloqueio, eles não são criptografados:
+use apenas rótulos descritivos e nunca coloque senhas ou outros segredos neles.
 
 No Windows, o caminho completo usado em produção é
 `%LOCALAPPDATA%\KeyCiphra\data\vault.db`. Versões de desenvolvimento que ainda
@@ -154,10 +158,13 @@ usados para cofres reais.
 
 ## Persistência
 
-O cofre usado pela aplicação fica em
-`%LOCALAPPDATA%\KeyCiphra\data\vault.db` no Windows. Backups ficam em
-`%LOCALAPPDATA%\KeyCiphra\backups`. Bancos locais e arquivos SQLite são
-ignorados pelo Git. O banco contém:
+O cofre principal preservado fica em
+`%LOCALAPPDATA%\KeyCiphra\data\vault.db` no Windows. Novos cofres ficam em
+`%LOCALAPPDATA%\KeyCiphra\vaults\<id>\vault.db`, com backups na subpasta
+`backups` do próprio cofre. Registros de seleção ficam em `vaults.json`; esse
+catálogo contém somente identificador, nome, tipo de armazenamento e data de
+criação — nunca senhas ou chaves. Bancos locais e arquivos SQLite são ignorados
+pelo Git. Cada banco contém:
 
 - salt e parâmetros públicos do Argon2id;
 - versão do formato e do schema;
@@ -172,7 +179,7 @@ as credenciais, portanto os dados persistem entre execuções.
 
 ## Backups
 
-Os snapshots são criados na subpasta `backups` do diretório privado da aplicação
+Os snapshots são criados na subpasta `backups` isolada do cofre atual
 usando a API de backup do SQLite. Antes de publicar um arquivo, o serviço executa
 `PRAGMA integrity_check` e confirma a presença dos metadados do cofre. A
 publicação usa substituição atômica e nunca gera uma versão descriptografada.
@@ -263,5 +270,7 @@ outros modelos de processador devem ser medidos antes de definir requisitos mín
 8. Hardening automatizado, permissões privadas, migrações transacionais e CI
    multiplataforma (ciclo interno concluído); revisão de segurança independente
    ainda pendente.
-9. Gerenciamento de múltiplos cofres, com criação, seleção e backups isolados
-   (próximo ciclo proposto).
+9. Gerenciamento de múltiplos cofres, com criação, seleção, renomeação,
+   arquivamento autenticado e backups isolados (concluído).
+10. Instalador assinado e fluxo temático para restaurar cofres arquivados
+    (próximo ciclo proposto).

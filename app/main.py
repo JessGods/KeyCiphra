@@ -10,6 +10,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.models.app_settings import AppSettings
+from app.models.managed_vault import ManagedVault
 from app.repositories.category_repository import CategoryRepository
 from app.repositories.credential_repository import CredentialRepository
 from app.security.auto_lock import AutoLockManager
@@ -23,23 +24,29 @@ from app.services.clipboard_service import ClipboardService
 from app.services.settings_service import SettingsError, SettingsService
 from app.services.storage_migration_service import (
     StorageMigrationError,
+    StorageMigrationResult,
     migrate_legacy_storage,
 )
+from app.services.vault_catalog_service import VaultCatalogError, VaultCatalogService
 from app.services.vault_service import VaultService
 from app.ui.icons import lucide_icon
 from app.ui.login_window import LoginWindow, as_vault_session
 from app.ui.main_window import MainWindow
 from app.ui.message_dialog import MessageDialog
+from app.ui.vault_manager_window import VaultManagerWindow
 from app.utils.logging_config import configure_logging, get_logger
 from app.utils.paths import (
     APP_ICON_PATH,
     APPLICATION_DATA_DIRECTORY,
+    ARCHIVED_VAULTS_DIRECTORY,
     BACKUP_DIRECTORY,
     DEFAULT_VAULT_PATH,
     LEGACY_BACKUP_DIRECTORY,
     LEGACY_VAULT_PATH,
     LOG_DIRECTORY,
+    MANAGED_VAULTS_DIRECTORY,
     SETTINGS_PATH,
+    VAULT_CATALOG_PATH,
 )
 
 SIGNAL_POLL_INTERVAL_MS = 200
@@ -85,7 +92,7 @@ QWidget {
     color: #e5e7eb;
     font-family: "Segoe UI";
 }
-QWidget#mainRoot, QWidget#loginRoot, QDialog {
+QWidget#mainRoot, QWidget#loginRoot, QWidget#vaultManagerRoot, QDialog {
     background-color: #0f172a;
 }
 QWidget#windowChrome { background: transparent; }
@@ -121,6 +128,44 @@ QFrame#authForm {
     background-color: #1f2937;
     border: 0;
     border-radius: 16px;
+}
+QFrame#vaultManagerSidebar, QFrame#vaultManagerCard {
+    background-color: #111b2e;
+    border: 1px solid #334155;
+    border-radius: 14px;
+}
+QLabel#vaultManagerBadge, QLabel#vaultDetailBadge {
+    background-color: #172554;
+    border: 1px solid #2563eb;
+    border-radius: 20px;
+}
+QLabel#vaultManagerBadge { border-radius: 28px; }
+QLabel#vaultSelectedName {
+    color: #f8fafc;
+    font-size: 18pt;
+    font-weight: 700;
+}
+QLabel#selectedVaultSummary {
+    color: #bfdbfe;
+    background-color: #172554;
+    border: 1px solid #1d4ed8;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+QListWidget#vaultList {
+    background-color: #0b1220;
+    border: 0;
+    border-radius: 9px;
+    padding: 6px;
+}
+QListWidget#vaultList::item {
+    margin: 3px;
+    padding: 10px 12px;
+    border-radius: 8px;
+}
+QListWidget#vaultList::item:selected {
+    background-color: #1d4ed8;
+    color: #ffffff;
 }
 QDialog#credentialDialog {
     background: qradialgradient(cx:0.15, cy:0.05, radius:1.1,
@@ -411,17 +456,16 @@ class ApplicationController:
         *,
         settings: AppSettings,
         settings_service: SettingsService,
+        vault_catalog_service: VaultCatalogService,
         initial_notice: str | None = None,
     ) -> None:
         self._application = application
         self._settings = settings
         self._settings_service = settings_service
-        self._vault_service = VaultService(DEFAULT_VAULT_PATH)
-        self._backup_service = BackupService(
-            DEFAULT_VAULT_PATH,
-            BACKUP_DIRECTORY,
-            retention=settings.backup_retention,
-        )
+        self._vault_catalog_service = vault_catalog_service
+        self._selected_vault: ManagedVault | None = None
+        self._vault_service: VaultService | None = None
+        self._backup_service: BackupService | None = None
         self._clipboard = ClipboardService(
             application.clipboard(),
             settings.clipboard_seconds,
@@ -432,32 +476,97 @@ class ApplicationController:
         )
         self._auto_lock.timed_out.connect(self._handle_auto_lock)
         self._pending_login_notice = initial_notice
+        self._vault_manager_window: VaultManagerWindow | None = None
         self._login_window: LoginWindow | None = None
         self._main_window: MainWindow | None = None
         self._shutting_down = False
 
     def start(self) -> None:
         get_logger().info("application.ui_started")
+        self.show_vault_manager()
+
+    def show_vault_manager(self) -> None:
+        self._auto_lock.stop()
+        if self._main_window is not None:
+            self._main_window.close()
+            self._main_window = None
+        if self._login_window is not None:
+            self._login_window.close()
+            self._login_window = None
+        self._selected_vault = None
+        self._vault_service = None
+        self._backup_service = None
+        self._vault_manager_window = VaultManagerWindow(
+            self._vault_catalog_service,
+            notice=self._pending_login_notice,
+        )
+        self._pending_login_notice = None
+        self._vault_manager_window.open_requested.connect(self._select_vault)
+        self._vault_manager_window.vault_created.connect(
+            lambda vault, session: self.show_main(session, vault)
+        )
+        self._vault_manager_window.show()
+
+    def _select_vault(self, value: object) -> None:
+        if not isinstance(value, ManagedVault):
+            raise TypeError("Seleção de cofre inválida.")
+        self._configure_vault(value)
         self.show_login()
+
+    def _configure_vault(self, vault: ManagedVault) -> None:
+        selected = self._vault_catalog_service.get(vault.id)
+        database_path = self._vault_catalog_service.vault_path(selected)
+        backup_directory = self._vault_catalog_service.backup_directory(selected)
+        self._selected_vault = selected
+        self._vault_service = VaultService(database_path)
+        self._backup_service = BackupService(
+            database_path,
+            backup_directory,
+            retention=self._settings.backup_retention,
+        )
 
     def show_login(self) -> None:
         self._auto_lock.stop()
+        if self._selected_vault is None or self._vault_service is None:
+            self.show_vault_manager()
+            return
         if self._main_window is not None:
             self._main_window.close()
             self._main_window = None
         self._login_window = LoginWindow(
             self._vault_service,
             notice=self._pending_login_notice,
+            vault_name=self._selected_vault.name,
+            allow_switch=True,
         )
         self._pending_login_notice = None
         self._login_window.unlocked.connect(self.show_main)
+        self._login_window.switch_requested.connect(self.show_vault_manager)
         self._login_window.show()
+        if self._vault_manager_window is not None:
+            self._vault_manager_window.close()
+            self._vault_manager_window = None
 
-    def show_main(self, session_value: object) -> None:
+    def show_main(
+        self,
+        session_value: object,
+        vault_value: object | None = None,
+    ) -> None:
+        if vault_value is not None:
+            if not isinstance(vault_value, ManagedVault):
+                raise TypeError("Cofre recém-criado inválido.")
+            self._configure_vault(vault_value)
+        if (
+            self._selected_vault is None
+            or self._vault_service is None
+            or self._backup_service is None
+        ):
+            raise RuntimeError("Nenhum cofre foi selecionado.")
         session = as_vault_session(session_value)
-        repository = CredentialRepository(DEFAULT_VAULT_PATH, session)
+        database_path = self._vault_catalog_service.vault_path(self._selected_vault)
+        repository = CredentialRepository(database_path, session)
         category_service = CategoryService(
-            CategoryRepository(DEFAULT_VAULT_PATH, session),
+            CategoryRepository(database_path, session),
             repository,
         )
         self._main_window = MainWindow(
@@ -467,8 +576,10 @@ class ApplicationController:
             self._backup_service,
             self._settings,
             category_service=category_service,
+            vault_name=self._selected_vault.name,
         )
         self._main_window.lock_requested.connect(self.show_login)
+        self._main_window.switch_vault_requested.connect(self.show_vault_manager)
         self._main_window.vault_restored.connect(self._handle_vault_restored)
         self._main_window.settings_changed.connect(self._handle_settings_changed)
         if not self._main_window.initialize():
@@ -479,6 +590,9 @@ class ApplicationController:
         if self._login_window is not None:
             self._login_window.close()
             self._login_window = None
+        if self._vault_manager_window is not None:
+            self._vault_manager_window.close()
+            self._vault_manager_window = None
         self._auto_lock.start()
         get_logger().info("vault.session_opened")
         try:
@@ -527,7 +641,8 @@ class ApplicationController:
         self._settings = value
         self._auto_lock.set_timeout_seconds(value.auto_lock_minutes * 60)
         self._clipboard.set_timeout_seconds(value.clipboard_seconds)
-        self._backup_service.set_retention(value.backup_retention)
+        if self._backup_service is not None:
+            self._backup_service.set_retention(value.backup_retention)
         self._main_window.apply_settings(value)
         get_logger().info(
             "settings.updated auto_lock_minutes=%d clipboard_seconds=%d backup_retention=%d",
@@ -551,6 +666,10 @@ class ApplicationController:
         if self._login_window is not None:
             window = self._login_window
             self._login_window = None
+            window.close()
+        if self._vault_manager_window is not None:
+            window = self._vault_manager_window
+            self._vault_manager_window = None
             window.close()
 
 
@@ -599,11 +718,15 @@ def main() -> int:
             "As configurações locais estavam inválidas; os valores seguros padrão foram aplicados."
         )
     try:
-        migration = migrate_legacy_storage(
-            LEGACY_VAULT_PATH,
-            LEGACY_BACKUP_DIRECTORY,
-            DEFAULT_VAULT_PATH,
-            BACKUP_DIRECTORY,
+        migration = (
+            StorageMigrationResult()
+            if VAULT_CATALOG_PATH.is_file()
+            else migrate_legacy_storage(
+                LEGACY_VAULT_PATH,
+                LEGACY_BACKUP_DIRECTORY,
+                DEFAULT_VAULT_PATH,
+                BACKUP_DIRECTORY,
+            )
         )
     except StorageMigrationError as exc:
         logger.error("storage.migration_failed type=%s", type(exc).__name__)
@@ -626,10 +749,29 @@ def main() -> int:
                 f" {migration.backups_skipped} backup(s) antigo(s) inválido(s) foram ignorados."
             )
         startup_notices.append(migration_notice)
+    vault_catalog_service = VaultCatalogService(
+        VAULT_CATALOG_PATH,
+        MANAGED_VAULTS_DIRECTORY,
+        ARCHIVED_VAULTS_DIRECTORY,
+        DEFAULT_VAULT_PATH,
+        BACKUP_DIRECTORY,
+    )
+    try:
+        vault_catalog_service.initialize()
+    except VaultCatalogError as exc:
+        logger.error("vault.catalog_load_failed type=%s", type(exc).__name__)
+        MessageDialog.error(
+            None,
+            "O catálogo local de cofres não pôde ser carregado.",
+            title="Cofres indisponíveis",
+            detail="Nenhum arquivo de cofre foi alterado.",
+        )
+        return 1
     controller = ApplicationController(
         application,
         settings=settings,
         settings_service=settings_service,
+        vault_catalog_service=vault_catalog_service,
         initial_notice=" ".join(startup_notices) or None,
     )
     interrupt_poller = install_graceful_interrupt_handler(application)

@@ -27,11 +27,21 @@ class LoginWindow(QMainWindow):
     """Solicita a senha mestra sem mantê-la após a tentativa."""
 
     unlocked = Signal(object)
+    switch_requested = Signal()
 
-    def __init__(self, vault_service: VaultService, notice: str | None = None) -> None:
+    def __init__(
+        self,
+        vault_service: VaultService,
+        notice: str | None = None,
+        *,
+        vault_name: str = "Cofre principal",
+        allow_switch: bool = False,
+    ) -> None:
         super().__init__()
         self._vault_service = vault_service
         self._notice = notice
+        self._vault_name = vault_name
+        self._allow_switch = allow_switch
         self._is_first_access = not vault_service.exists()
         self._password_visible = False
         self._password_input = QLineEdit()
@@ -123,6 +133,10 @@ class LoginWindow(QMainWindow):
         subtitle.setObjectName("muted")
         subtitle.setWordWrap(True)
         form_layout.addWidget(subtitle)
+        selected_vault = QLabel(f"Cofre selecionado: {self._vault_name}")
+        selected_vault.setObjectName("selectedVaultSummary")
+        selected_vault.setWordWrap(True)
+        form_layout.addWidget(selected_vault)
         if self._notice:
             notice = QLabel(self._notice)
             notice.setObjectName("sessionNotice")
@@ -172,6 +186,14 @@ class LoginWindow(QMainWindow):
         )
         self._action_button.clicked.connect(self._submit)
         form_layout.addWidget(self._action_button)
+        if self._allow_switch:
+            switch_button = QPushButton("Escolher outro cofre")
+            switch_button.setObjectName("secondaryButton")
+            switch_button.setIcon(lucide_icon("vault", "#e5e7eb", 18))
+            switch_button.setIconSize(QSize(18, 18))
+            switch_button.setMinimumHeight(42)
+            switch_button.clicked.connect(self.switch_requested)
+            form_layout.addWidget(switch_button)
         shell_layout.addWidget(form_panel, 1)
 
         centered = QHBoxLayout()

@@ -7,7 +7,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, Qt  # noqa: E402
 from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
@@ -28,6 +28,7 @@ from app.security.kdf import KDFParameters  # noqa: E402
 from app.services.backup_service import BackupService  # noqa: E402
 from app.services.category_service import CategoryService  # noqa: E402
 from app.services.clipboard_service import ClipboardService  # noqa: E402
+from app.services.vault_catalog_service import VaultCatalogService  # noqa: E402
 from app.services.vault_service import VaultService  # noqa: E402
 from app.ui.category_manager_dialog import CategoryManagerDialog  # noqa: E402
 from app.ui.credential_dialog import CredentialDialog  # noqa: E402
@@ -36,6 +37,12 @@ from app.ui.main_window import MainWindow  # noqa: E402
 from app.ui.message_dialog import MessageDialog, MessageKind  # noqa: E402
 from app.ui.password_generator_dialog import PasswordGeneratorDialog  # noqa: E402
 from app.ui.settings_dialog import SettingsDialog  # noqa: E402
+from app.ui.vault_manager_dialogs import (  # noqa: E402
+    ArchiveVaultDialog,
+    NewVaultDialog,
+    RenameVaultDialog,
+)
+from app.ui.vault_manager_window import VaultManagerWindow  # noqa: E402
 from app.ui.vault_restore_dialog import VaultRestoreDialog  # noqa: E402
 from app.ui.window_chrome import WindowChrome  # noqa: E402
 
@@ -97,7 +104,7 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     settings_dialog = SettingsDialog(AppSettings(), main)
 
     assert login.windowTitle() == "KeyCiphra — Cofre local"
-    assert main.windowTitle() == "KeyCiphra — Cofre desbloqueado"
+    assert main.windowTitle() == "KeyCiphra — Cofre principal"
     assert login.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert main.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert credential_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
@@ -209,15 +216,53 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     assert clipboard.text() == ""
     assert not session.is_unlocked
 
-    message_dialog.close()
-    file_dialog.close()
-    restore_dialog.close()
-    settings_dialog.close()
-    category_dialog.close()
-    generator_dialog.close()
-    credential_dialog.close()
-    main.close()
-    login.close()
+    for widget in (
+        message_dialog,
+        file_dialog,
+        restore_dialog,
+        settings_dialog,
+        category_dialog,
+        generator_dialog,
+        credential_dialog,
+        main,
+        login,
+    ):
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
+
+
+def test_vault_manager_and_dialogs_follow_the_theme(tmp_path: Path) -> None:
+    application = QApplication.instance() or QApplication([])
+    catalog = VaultCatalogService(
+        tmp_path / "vaults.json",
+        tmp_path / "vaults",
+        tmp_path / "archived-vaults",
+        tmp_path / "data" / "vault.db",
+        tmp_path / "backups",
+    )
+    catalog.initialize()
+    manager = VaultManagerWindow(catalog)
+    new_dialog = NewVaultDialog(manager)
+    rename_dialog = RenameVaultDialog("Cofre principal", manager)
+    archive_dialog = ArchiveVaultDialog("Cofre principal", manager)
+
+    assert manager.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert manager.findChild(WindowChrome) is not None
+    assert manager.findChild(QListWidget, "vaultList") is not None
+    assert manager.findChild(QListWidget, "vaultList").count() == 0
+    assert new_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert rename_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert archive_dialog.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert new_dialog.findChild(QLineEdit, "newVaultPassword").echoMode() == QLineEdit.EchoMode.Password
+    assert archive_dialog.findChild(QLineEdit, "archiveVaultPassword").echoMode() == QLineEdit.EchoMode.Password
+
+    for widget in (archive_dialog, rename_dialog, new_dialog, manager):
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    application.processEvents()
 
 
 def test_action_column_expands_with_large_font(tmp_path: Path) -> None:
@@ -250,4 +295,7 @@ def test_action_column_expands_with_large_font(tmp_path: Path) -> None:
         assert main.minimumWidth() == 680
     finally:
         main.close()
+        main.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        application.processEvents()
         application.setFont(original_font)
