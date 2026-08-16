@@ -54,8 +54,16 @@ class CategoryService:
         self._reject_duplicate(clean, excluding_id=category_id)
         if current.name == clean:
             return current
-        updated = self._repository.update(replace(current, name=clean))
-        self._credential_repository.replace_category(current.name, clean)
+        with self._repository.transaction() as connection:
+            updated = self._repository.update(
+                replace(current, name=clean),
+                connection=connection,
+            )
+            self._credential_repository.replace_category(
+                current.name,
+                clean,
+                connection=connection,
+            )
         return updated
 
     def delete(self, category_id: str, replacement_name: str = "") -> int:
@@ -68,8 +76,13 @@ class CategoryService:
             for category in self._repository.list_all()
         ):
             raise CategoryValidationError("A categoria de destino não existe.")
-        changed = self._credential_repository.replace_category(current.name, replacement)
-        self._repository.delete(category_id)
+        with self._repository.transaction() as connection:
+            changed = self._credential_repository.replace_category(
+                current.name,
+                replacement,
+                connection=connection,
+            )
+            self._repository.delete(category_id, connection=connection)
         return changed
 
     def usage_count(self, name: str) -> int:

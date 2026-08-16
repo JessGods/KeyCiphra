@@ -42,6 +42,8 @@ def _validate_target(directory: Path) -> None:
 def _restrict_posix_modes(directory: Path) -> None:
     directory.chmod(stat.S_IRWXU)
     for child in directory.rglob("*"):
+        if child.is_symlink():
+            raise ValueError("Links simbólicos não são permitidos no armazenamento privado.")
         child.chmod(stat.S_IRWXU if child.is_dir() else stat.S_IRUSR | stat.S_IWUSR)
 
 

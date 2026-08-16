@@ -10,6 +10,10 @@ from pathlib import Path
 from app.database.connection import connect_database
 from app.models.credential import Credential, utc_now_iso
 from app.security.session import VaultSession
+from app.security.storage_limits import (
+    MAX_CREDENTIAL_CIPHERTEXT_BYTES,
+    MAX_CREDENTIALS,
+)
 from app.services.crypto_service import DecryptionError, EncryptedData
 
 
@@ -32,6 +36,14 @@ class CredentialRepository:
         encrypted = self._encrypt(credential)
         try:
             with connect_database(self._database_path) as connection:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM credentials LIMIT ?)",
+                    (MAX_CREDENTIALS,),
+                ).fetchone()[0]
+                if count >= MAX_CREDENTIALS:
+                    raise ValueError(
+                        f"O cofre atingiu o limite de {MAX_CREDENTIALS} credenciais."
+                    )
                 connection.execute(
                     """
                     INSERT INTO credentials (
@@ -65,6 +77,17 @@ class CredentialRepository:
 
     def list_all(self) -> list[Credential]:
         with connect_database(self._database_path) as connection:
+            count = connection.execute(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM credentials LIMIT ?)",
+                (MAX_CREDENTIALS + 1,),
+            ).fetchone()[0]
+            largest = connection.execute(
+                "SELECT COALESCE(MAX(length(payload_ciphertext)), 0) FROM credentials"
+            ).fetchone()[0]
+            if count > MAX_CREDENTIALS or largest > MAX_CREDENTIAL_CIPHERTEXT_BYTES:
+                raise RepositoryIntegrityError(
+                    "O cofre excede os limites defensivos de credenciais."
+                )
             rows = connection.execute(
                 """
                 SELECT id, payload_nonce, payload_ciphertext
@@ -103,7 +126,13 @@ class CredentialRepository:
         if cursor.rowcount != 1:
             raise CredentialNotFoundError("Credencial não encontrada.")
 
-    def replace_category(self, old_name: str, new_name: str) -> int:
+    def replace_category(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> int:
         """Reclassifica em uma transação todos os payloads de uma categoria."""
         old_key = old_name.strip().casefold()
         replacements: list[tuple[bytes, bytes, str, str]] = []
@@ -117,7 +146,7 @@ class CredentialRepository:
             )
         if not replacements:
             return 0
-        with connect_database(self._database_path) as connection:
+        if connection is not None:
             connection.executemany(
                 """
                 UPDATE credentials
@@ -126,6 +155,16 @@ class CredentialRepository:
                 """,
                 replacements,
             )
+        else:
+            with connect_database(self._database_path) as local_connection:
+                local_connection.executemany(
+                    """
+                    UPDATE credentials
+                    SET payload_nonce = ?, payload_ciphertext = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    replacements,
+                )
         return len(replacements)
 
     def _encrypt(self, credential: Credential) -> EncryptedData:
@@ -134,6 +173,8 @@ class CredentialRepository:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+        if len(payload.encode("utf-8")) > MAX_CREDENTIAL_CIPHERTEXT_BYTES - 16:
+            raise ValueError("A credencial excede o limite de 1 MiB.")
         return self._session.crypto.encrypt_text(payload, self._aad(credential.id))
 
     def _decrypt_row(self, row: sqlite3.Row) -> Credential:

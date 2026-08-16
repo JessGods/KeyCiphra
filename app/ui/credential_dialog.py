@@ -231,6 +231,16 @@ class CredentialDialog(QDialog):
             return Credential.create(**values)
         return replace(self._original, **values)
 
+    def clear_sensitive_fields(self) -> None:
+        """Descarta todos os dados que o Qt manteria no diálogo fechado."""
+        self._reveal_timer.stop()
+        for field in (self._title, self._username, self._password, self._url):
+            field.clear()
+        self._notes.clear()
+        self._category.setCurrentIndex(0)
+        self._original = None
+        self._hide_password()
+
     def _fill(self, credential: Credential) -> None:
         self._title.setText(credential.title)
         self._username.setText(credential.username)
@@ -264,8 +274,12 @@ class CredentialDialog(QDialog):
 
     def _open_generator(self) -> None:
         dialog = PasswordGeneratorDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._password.setText(dialog.password)
+        try:
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self._password.setText(dialog.password)
+        finally:
+            dialog.clear_secret()
+            dialog.deleteLater()
 
     def _toggle_password_visibility(self) -> None:
         self._password_visible = not self._password_visible

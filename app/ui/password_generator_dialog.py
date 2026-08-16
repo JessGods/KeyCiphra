@@ -88,6 +88,9 @@ class PasswordGeneratorDialog(QDialog):
     def password(self) -> str:
         return self._result.text()
 
+    def clear_secret(self) -> None:
+        self._result.clear()
+
     def _options(self) -> PasswordOptions:
         return PasswordOptions(
             length=self._length.value(),

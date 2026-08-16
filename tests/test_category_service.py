@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,49 @@ def test_delete_can_reassign_credentials_to_another_category(
     assert [category.name for category in categories.list_all()] == ["Nova"]
 
 
+def test_rename_rolls_back_if_credential_reclassification_fails(
+    category_context: tuple[Path, CategoryRepository, CredentialRepository, CategoryService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, categories, credentials, service = category_context
+    category = service.create("Pessoal")
+    credential = credentials.add(Credential.create(title="Conta", category="Pessoal"))
+
+    def fail_reclassification(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr(credentials, "replace_category", fail_reclassification)
+
+    with pytest.raises(RuntimeError, match="falha simulada"):
+        service.rename(category.id, "Privado")
+
+    assert categories.get(category.id).name == "Pessoal"
+    assert credentials.get(credential.id).category == "Pessoal"
+
+
+def test_delete_rolls_back_reclassification_if_category_delete_fails(
+    category_context: tuple[Path, CategoryRepository, CredentialRepository, CategoryService],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, categories, credentials, service = category_context
+    old = service.create("Antiga")
+    service.create("Nova")
+    credential = credentials.add(Credential.create(title="Conta", category="Antiga"))
+
+    def fail_delete(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise RuntimeError("falha simulada")
+
+    monkeypatch.setattr(categories, "delete", fail_delete)
+
+    with pytest.raises(RuntimeError, match="falha simulada"):
+        service.delete(old.id, "Nova")
+
+    assert categories.get(old.id).name == "Antiga"
+    assert credentials.get(credential.id).category == "Antiga"
+
+
 def test_category_name_is_encrypted_and_tampering_is_detected(
     category_context: tuple[Path, CategoryRepository, CredentialRepository, CategoryService],
 ) -> None:
@@ -97,7 +141,7 @@ def test_category_name_is_encrypted_and_tampering_is_detected(
     category = categories.add(Category.create("Categoria ultrassecreta fictícia"))
     assert category.name.encode("utf-8") not in database_path.read_bytes()
 
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.execute(
             "UPDATE categories SET payload_ciphertext = zeroblob(32) WHERE id = ?",
             (category.id,),
@@ -112,7 +156,7 @@ def test_old_vault_without_category_table_is_upgraded_non_destructively(tmp_path
     session = VaultService(database_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS)
     credentials = CredentialRepository(database_path, session)
     original = credentials.add(Credential.create(title="Conta antiga", category="Legado"))
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.execute("DROP TABLE categories")
         connection.execute("UPDATE vault_metadata SET schema_version = 1 WHERE singleton = 1")
     session.lock()
@@ -126,7 +170,7 @@ def test_old_vault_without_category_table_is_upgraded_non_destructively(tmp_path
 
     assert [category.name for category in service.synchronize()] == ["Legado"]
     assert reopened_credentials.get(original.id) == original
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         version = connection.execute(
             "SELECT schema_version FROM vault_metadata WHERE singleton = 1"
         ).fetchone()[0]
@@ -137,14 +181,14 @@ def test_wrong_password_does_not_migrate_an_old_vault(tmp_path: Path) -> None:
     database_path = tmp_path / "legacy-locked.db"
     session = VaultService(database_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS)
     session.lock()
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.execute("DROP TABLE categories")
         connection.execute("UPDATE vault_metadata SET schema_version = 1 WHERE singleton = 1")
 
     with pytest.raises(VaultUnlockError):
         VaultService(database_path).unlock("senha-incorreta-ficticia")
 
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         version = connection.execute(
             "SELECT schema_version FROM vault_metadata WHERE singleton = 1"
         ).fetchone()[0]

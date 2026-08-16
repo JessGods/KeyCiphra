@@ -1,6 +1,7 @@
 """Testes de criação e desbloqueio persistente do cofre."""
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -63,7 +64,7 @@ def test_modified_verifier_does_not_unlock(tmp_path: Path) -> None:
     service = VaultService(database_path)
     service.create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
 
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         ciphertext = connection.execute(
             "SELECT verifier_ciphertext FROM vault_metadata WHERE singleton = 1"
         ).fetchone()[0]

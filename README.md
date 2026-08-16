@@ -139,7 +139,7 @@ winget install --id JRSoftware.InnoSetup -e --source winget
 .\build-installer.ps1
 ```
 
-O resultado será `dist\KeyCiphra-Setup-0.9.0.exe`. A instalação e a
+O resultado será `dist\KeyCiphra-Setup-0.9.1.exe`. A instalação e a
 desinstalação preservam todos os cofres e backups. O processo de assinatura,
 atualização e publicação está detalhado em [`DISTRIBUTION.md`](DISTRIBUTION.md).
 
@@ -217,6 +217,12 @@ importa cofres criados pelo KeyCiphra. Na restauração, a senha mestra do arqui
 é exigida e todas as credenciais e categorias são autenticadas antes de qualquer alteração.
 O cofre em uso é preservado automaticamente na pasta de backups; após a troca,
 o aplicativo bloqueia a sessão e solicita a senha do cofre restaurado.
+
+Para impedir consumo descontrolado de memória e CPU por arquivos corrompidos ou
+maliciosos, cada importação aceita no máximo 128 MiB, 20.000 credenciais e 2.000
+categorias. O payload criptografado de uma credencial pode ter até 1 MiB e o de
+uma categoria até 64 KiB. Esses tetos são defensivos e ficam muito acima do uso
+pessoal esperado; se algum deles for excedido, o cofre atual permanece intacto.
 
 O arquivo exportado pode ser transportado por mídia removível ou armazenamento
 em nuvem, mas não deve ser aberto simultaneamente por dois computadores. A

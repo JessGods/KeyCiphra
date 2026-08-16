@@ -28,7 +28,24 @@ criptográfica independente.
 - Certificados e tokens não são incluídos no executável. A preparação de
   assinatura usa SignTool, SHA-256, carimbo de tempo e verificação Authenticode.
 - Manifestos de versões futuras rejeitam HTTP, credenciais em URL, fragmentos,
-  versões malformadas e hashes que não sejam SHA-256.
+  hosts não fixados pelo aplicativo, versões malformadas e hashes que não sejam
+  SHA-256.
+- Um lock de processo impede duas instâncias de alterarem simultaneamente o
+  catálogo de cofres. Bloqueio, desconexão e logoff do Windows bloqueiam o cofre
+  aberto imediatamente.
+- Segredos copiados são marcados para não entrar no histórico nem na
+  sincronização em nuvem do clipboard do Windows e continuam sendo apagados por
+  temporizador se não tiverem sido substituídos pelo usuário.
+- Importações são limitadas a 128 MiB, 20.000 credenciais, 2.000 categorias,
+  1 MiB por payload de credencial e 64 KiB por payload de categoria. A validação
+  acontece antes de alterar o cofre atual e mantém compatibilidade com schema 1.
+- Renomear ou excluir categorias e reclassificar suas credenciais agora ocorre
+  em uma única transação. Diálogos descartam seus campos secretos ao fechar e
+  links simbólicos são rejeitados durante o hardening POSIX.
+- A suíte mede cobertura de `app` e exige pelo menos 75% tanto localmente quanto
+  no CI multiplataforma.
+- A assinatura de releases aceita somente certificado instalado no Windows por
+  thumbprint, evitando colocar senha de PFX na linha de comando do SignTool.
 
 ## Resultado local reproduzível
 
@@ -56,8 +73,8 @@ ou senha mestra. O resultado depende do hardware e deve ser repetido nas
 máquinas suportadas.
 
 Na execução deste ciclo, lint, Bandit, auditoria das dependências e `pip check`
-foram aprovados; a suíte encerrou com **105 testes aprovados e 1 ignorado** (o
-teste POSIX de permissões não se aplica ao Windows).
+foram aprovados; a suíte encerrou com **123 testes aprovados e 2 ignorados** e
+**76% de cobertura** no Windows (os testes POSIX não se aplicam ao Windows).
 
 ## Riscos residuais
 

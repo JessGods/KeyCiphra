@@ -25,26 +25,17 @@ function Find-SignTool {
 }
 
 $SignTool = Find-SignTool
-$CertificatePath = $env:KEYCIPHRA_SIGN_CERTIFICATE_PATH
-$CertificatePassword = $env:KEYCIPHRA_SIGN_CERTIFICATE_PASSWORD
 $CertificateThumbprint = $env:KEYCIPHRA_SIGN_CERTIFICATE_THUMBPRINT
 
-if ([string]::IsNullOrWhiteSpace($CertificatePath) -and [string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
-    throw "Defina KEYCIPHRA_SIGN_CERTIFICATE_PATH ou KEYCIPHRA_SIGN_CERTIFICATE_THUMBPRINT."
+if ([string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
+    throw "Instale o certificado no Windows e defina KEYCIPHRA_SIGN_CERTIFICATE_THUMBPRINT."
 }
 
 foreach ($artifact in $Path) {
     $ResolvedArtifact = (Resolve-Path -LiteralPath $artifact).Path
     $arguments = @("sign", "/fd", "SHA256", "/tr", $TimestampUrl, "/td", "SHA256")
-    if (-not [string]::IsNullOrWhiteSpace($CertificatePath)) {
-        $ResolvedCertificate = (Resolve-Path -LiteralPath $CertificatePath).Path
-        $arguments += @("/f", $ResolvedCertificate)
-        if (-not [string]::IsNullOrWhiteSpace($CertificatePassword)) {
-            $arguments += @("/p", $CertificatePassword)
-        }
-    } else {
-        $arguments += @("/sha1", $CertificateThumbprint)
-    }
+    # O certificado instalado evita expor senha de PFX na linha de comando do processo.
+    $arguments += @("/sha1", $CertificateThumbprint)
     $arguments += $ResolvedArtifact
     & $SignTool @arguments
     if ($LASTEXITCODE -ne 0) {

@@ -32,7 +32,12 @@ class ReleaseManifest:
     installer_sha256: str
 
     @classmethod
-    def from_json(cls, document: str) -> ReleaseManifest:
+    def from_json(
+        cls,
+        document: str,
+        *,
+        allowed_hosts: frozenset[str],
+    ) -> ReleaseManifest:
         try:
             value = json.loads(document)
         except (json.JSONDecodeError, TypeError) as exc:
@@ -52,6 +57,7 @@ class ReleaseManifest:
             or url.username is not None
             or url.password is not None
             or url.fragment
+            or url.hostname.casefold() not in {host.casefold() for host in allowed_hosts}
         ):
             raise InvalidReleaseManifest("URL do instalador não é segura.")
         digest = value["installer_sha256"]

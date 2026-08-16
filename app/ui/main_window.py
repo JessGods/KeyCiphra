@@ -34,6 +34,7 @@ from app.security.session import VaultSession
 from app.services.backup_service import (
     BackupAuthenticationError,
     BackupError,
+    BackupLimitError,
     BackupService,
 )
 from app.services.category_service import CategoryService
@@ -339,7 +340,10 @@ class MainWindow(QMainWindow):
             copy_button = QPushButton()
             self._configure_button(copy_button, "copy", compact=True)
             copy_button.setAccessibleName("Copiar senha")
-            copy_button.setToolTip("Copiar senha; o clipboard será limpo em 25 segundos")
+            copy_button.setToolTip(
+                "Copiar senha; o clipboard será limpo em "
+                f"{self._clipboard.timeout_seconds} segundos"
+            )
             copy_button.setEnabled(bool(credential.password))
             copy_button.clicked.connect(lambda checked=False, item=credential: self._copy_password(item))
             actions_layout.addWidget(copy_button)
@@ -381,16 +385,20 @@ class MainWindow(QMainWindow):
             categories=self._category_names(),
             manage_categories=self._manage_categories,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
-            self._repository.add(dialog.credential())
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            credential = dialog.credential()
+            self._repository.add(credential)
             self._load_credentials()
             self.statusBar().showMessage("Credencial salva com segurança.", 4_000)
             get_logger().info("credential.created")
         except Exception as exc:
             get_logger().error("credential.create_failed type=%s", type(exc).__name__)
             MessageDialog.error(self, "Não foi possível salvar a credencial.")
+        finally:
+            dialog.clear_sensitive_fields()
+            dialog.deleteLater()
 
     def _edit(self, credential: Credential) -> None:
         dialog = CredentialDialog(
@@ -399,16 +407,20 @@ class MainWindow(QMainWindow):
             categories=self._category_names(),
             manage_categories=self._manage_categories,
         )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
-            self._repository.update(dialog.credential())
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            updated = dialog.credential()
+            self._repository.update(updated)
             self._load_credentials()
             self.statusBar().showMessage("Credencial atualizada.", 4_000)
             get_logger().info("credential.updated")
         except Exception as exc:
             get_logger().error("credential.update_failed type=%s", type(exc).__name__)
             MessageDialog.error(self, "Não foi possível atualizar a credencial.")
+        finally:
+            dialog.clear_sensitive_fields()
+            dialog.deleteLater()
 
     def _delete(self, credential: Credential) -> None:
         confirmed = MessageDialog.confirm(
@@ -522,12 +534,13 @@ class MainWindow(QMainWindow):
         if source is None:
             return
         dialog = VaultRestoreDialog(source, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            master_password = dialog.master_password
             safety_backup = self._backup_service.restore_backup(
                 source,
-                dialog.master_password,
+                master_password,
             )
         except BackupAuthenticationError:
             get_logger().warning("vault.restore_authentication_failed")
@@ -535,6 +548,15 @@ class MainWindow(QMainWindow):
                 self,
                 "A senha está incorreta ou o arquivo contém dados adulterados.",
                 title="Cofre não autenticado",
+                detail="O cofre atual permaneceu intacto.",
+            )
+            return
+        except BackupLimitError as exc:
+            get_logger().warning("vault.restore_limit_rejected")
+            MessageDialog.warning(
+                self,
+                str(exc),
+                title="Arquivo acima dos limites seguros",
                 detail="O cofre atual permaneceu intacto.",
             )
             return
@@ -547,6 +569,9 @@ class MainWindow(QMainWindow):
                 detail="O cofre atual permaneceu intacto.",
             )
             return
+        finally:
+            dialog.clear_secrets()
+            dialog.deleteLater()
 
         self._credentials.clear()
         self._table.clearContents()

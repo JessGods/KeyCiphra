@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from app.security.kdf import KDFParameters
 from app.services.backup_service import (
     BackupAuthenticationError,
     BackupError,
+    BackupLimitError,
     BackupService,
 )
 from app.services.vault_service import VaultService
@@ -150,7 +152,7 @@ def test_restore_rejects_tampered_credential(tmp_path: Path) -> None:
     CredentialRepository(imported_path, imported_session).add(
         Credential.create(title="Registro adulterado", password="ficticia")
     )
-    with sqlite3.connect(imported_path) as connection:
+    with closing(sqlite3.connect(imported_path)) as connection, connection:
         connection.execute("UPDATE credentials SET payload_ciphertext = zeroblob(32)")
 
     with pytest.raises(BackupAuthenticationError):
@@ -171,7 +173,7 @@ def test_restore_rejects_tampered_category(tmp_path: Path) -> None:
     category = CategoryRepository(imported_path, imported_session).add(
         Category.create("Categoria adulterada")
     )
-    with sqlite3.connect(imported_path) as connection:
+    with closing(sqlite3.connect(imported_path)) as connection, connection:
         connection.execute(
             "UPDATE categories SET payload_ciphertext = zeroblob(32) WHERE id = ?",
             (category.id,),
@@ -182,6 +184,72 @@ def test_restore_rejects_tampered_category(tmp_path: Path) -> None:
             imported_path,
             MASTER_PASSWORD,
         )
+
+
+def test_restore_rejects_file_larger_than_import_limit(tmp_path: Path) -> None:
+    vault_path = tmp_path / "current.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    oversized = tmp_path / "oversized.db"
+    oversized.write_bytes(b"SQLite format 3\x00")
+    with oversized.open("r+b") as stream:
+        stream.truncate((128 * 1024 * 1024) + 1)
+
+    with pytest.raises(BackupLimitError):
+        BackupService(vault_path, tmp_path / "backups").restore_backup(
+            oversized,
+            MASTER_PASSWORD,
+        )
+
+
+def test_restore_rejects_too_many_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vault_path = tmp_path / "current.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    imported_path = tmp_path / "many.db"
+    imported_session = VaultService(imported_path).create(
+        MASTER_PASSWORD,
+        FAST_TEST_PARAMETERS,
+    )
+    repository = CredentialRepository(imported_path, imported_session)
+    repository.add(Credential.create(title="Primeira"))
+    repository.add(Credential.create(title="Segunda"))
+    imported_session.lock()
+    monkeypatch.setattr("app.services.backup_service.MAX_CREDENTIALS", 1)
+
+    with pytest.raises(BackupLimitError):
+        BackupService(vault_path, tmp_path / "backups").restore_backup(
+            imported_path,
+            MASTER_PASSWORD,
+        )
+
+
+def test_restore_accepts_supported_v1_vault_without_categories(tmp_path: Path) -> None:
+    vault_path = tmp_path / "current.db"
+    VaultService(vault_path).create(MASTER_PASSWORD, FAST_TEST_PARAMETERS).lock()
+    imported_path = tmp_path / "legacy.db"
+    imported_session = VaultService(imported_path).create(
+        MASTER_PASSWORD,
+        FAST_TEST_PARAMETERS,
+    )
+    CredentialRepository(imported_path, imported_session).add(
+        Credential.create(title="Credencial antiga", category="Legado")
+    )
+    imported_session.lock()
+    with closing(sqlite3.connect(imported_path)) as connection, connection:
+        connection.execute("DROP TABLE categories")
+        connection.execute("UPDATE vault_metadata SET schema_version = 1 WHERE singleton = 1")
+
+    BackupService(vault_path, tmp_path / "backups").restore_backup(
+        imported_path,
+        MASTER_PASSWORD,
+    )
+
+    restored_session = VaultService(vault_path).unlock(MASTER_PASSWORD)
+    assert CredentialRepository(vault_path, restored_session).list_all()[0].title == (
+        "Credencial antiga"
+    )
 
 
 def test_backup_retention_can_be_updated_for_future_backups(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 """Testes do CRUD criptografado de credenciais."""
 
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -113,7 +114,7 @@ def test_modified_payload_is_detected(
     credential = sample_credential()
     repo.add(credential)
 
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         ciphertext = connection.execute(
             "SELECT payload_ciphertext FROM credentials WHERE id = ?",
             (credential.id,),

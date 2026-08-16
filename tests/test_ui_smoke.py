@@ -161,6 +161,16 @@ def test_login_and_main_windows_initialize(tmp_path: Path) -> None:
     restore_password = restore_dialog.findChild(QLineEdit, "restorePassword")
     assert restore_password is not None
     assert restore_password.echoMode() == QLineEdit.EchoMode.Password
+    credential_dialog._password.setText("segredo-do-dialogo")
+    credential_dialog._notes.setPlainText("nota-confidencial")
+    credential_dialog.clear_sensitive_fields()
+    assert credential_dialog._password.text() == ""
+    assert credential_dialog._notes.toPlainText() == ""
+    generator_dialog.clear_secret()
+    assert generator_dialog.password == ""
+    restore_password.setText("senha-de-restauracao")
+    restore_dialog.clear_secrets()
+    assert restore_dialog.master_password == ""
     assert len(settings_dialog.findChildren(QSpinBox)) == 3
     assert settings_dialog.settings == AppSettings()
     assert all(

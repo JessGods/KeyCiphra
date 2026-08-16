@@ -39,4 +39,4 @@ jobs:
       - name: Tests
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: python -m pytest --cov=app --cov-report=term --cov-fail-under=75 -q

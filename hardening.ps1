@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ne 0) { throw "O ambiente de desenvolvimento contém vulnerab
 & $PythonPath -m pip check
 if ($LASTEXITCODE -ne 0) { throw "O ambiente possui dependências incompatíveis." }
 
-& $PythonPath -m pytest -q
+& $PythonPath -m pytest --cov=app --cov-report=term --cov-fail-under=75 -q
 if ($LASTEXITCODE -ne 0) { throw "A suíte de testes falhou." }
 
-Write-Host "Hardening concluído: lint, segurança, dependências e testes aprovados."
+Write-Host "Hardening concluído: lint, segurança, dependências e cobertura aprovados."

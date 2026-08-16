@@ -211,9 +211,9 @@ class VaultManagerWindow(QMainWindow):
 
     def _create(self) -> None:
         dialog = NewVaultDialog(self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
             vault, session = self._service.create(dialog.vault_name, dialog.master_password)
         except (TypeError, ValueError, RuntimeError) as exc:
             get_logger().warning("vault.catalog_create_failed type=%s", type(exc).__name__)
@@ -221,6 +221,7 @@ class VaultManagerWindow(QMainWindow):
             return
         finally:
             dialog.clear_secrets()
+            dialog.deleteLater()
         get_logger().info("vault.catalog_created")
         self.vault_created.emit(vault, session)
 
@@ -244,9 +245,9 @@ class VaultManagerWindow(QMainWindow):
         if vault is None:
             return
         dialog = ArchiveVaultDialog(vault.name, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
             archive_path = self._service.archive(vault.id, dialog.master_password)
         except VaultArchiveAuthenticationError:
             get_logger().warning("vault.catalog_archive_authentication_failed")
@@ -263,6 +264,7 @@ class VaultManagerWindow(QMainWindow):
             return
         finally:
             dialog.clear_secrets()
+            dialog.deleteLater()
         get_logger().info("vault.catalog_archived")
         self.refresh()
         MessageDialog.warning(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -15,6 +16,13 @@ from app.repositories.category_repository import (
 from app.repositories.credential_repository import (
     CredentialRepository,
     RepositoryIntegrityError,
+)
+from app.security.storage_limits import (
+    MAX_CATEGORIES,
+    MAX_CATEGORY_CIPHERTEXT_BYTES,
+    MAX_CREDENTIAL_CIPHERTEXT_BYTES,
+    MAX_CREDENTIALS,
+    MAX_VAULT_FILE_BYTES,
 )
 from app.services.vault_service import (
     UnsupportedVaultError,
@@ -30,6 +38,10 @@ class BackupError(RuntimeError):
 
 class BackupAuthenticationError(BackupError):
     """Evita distinguir senha incorreta de conteúdo adulterado."""
+
+
+class BackupLimitError(BackupError):
+    """Indica que um arquivo excede os limites defensivos de importação."""
 
 
 class BackupService:
@@ -87,12 +99,15 @@ class BackupService:
         if not selected.is_file() or self._same_path(selected, self._vault_path):
             raise BackupError("Selecione um arquivo de backup válido.")
 
+        self._validate_import_limits(selected)
+
         self._vault_path.parent.mkdir(parents=True, exist_ok=True)
         candidate = self._vault_path.with_name(
             f".{self._vault_path.name}.{uuid4().hex}.restore.tmp"
         )
         try:
             self._create_snapshot(selected, candidate)
+            self._validate_import_limits(candidate)
             self._authenticate_vault_content(candidate, master_password)
             safety_backup = self.create_backup()
             candidate.chmod(0o600)
@@ -167,7 +182,8 @@ class BackupService:
         source: sqlite3.Connection | None = None
         target: sqlite3.Connection | None = None
         try:
-            source = sqlite3.connect(source_path)
+            source_uri = source_path.resolve().as_uri() + "?mode=ro"
+            source = sqlite3.connect(source_uri, uri=True)
             target = sqlite3.connect(target_path)
             source.backup(target)
             target.commit()
@@ -217,6 +233,71 @@ class BackupService:
         finally:
             if session is not None:
                 session.lock()
+
+    @staticmethod
+    def _validate_import_limits(database_path: Path) -> None:
+        try:
+            related_paths = [
+                database_path,
+                database_path.with_name(database_path.name + "-wal"),
+                database_path.with_name(database_path.name + "-journal"),
+                database_path.with_name(database_path.name + "-shm"),
+            ]
+            if any(path.is_symlink() for path in related_paths):
+                raise BackupError("Links simbólicos não são aceitos na importação.")
+            total_size = sum(path.stat().st_size for path in related_paths if path.exists())
+            if total_size > MAX_VAULT_FILE_BYTES:
+                raise BackupLimitError(
+                    "O arquivo excede o limite de 128 MiB para importação."
+                )
+            uri = database_path.resolve().as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=5.0)) as connection:
+                connection.execute("PRAGMA query_only = ON")
+                credential_count = connection.execute(
+                    "SELECT COUNT(*) FROM (SELECT 1 FROM credentials LIMIT ?)",
+                    (MAX_CREDENTIALS + 1,),
+                ).fetchone()[0]
+                has_categories = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'categories'"
+                ).fetchone()
+                category_count = (
+                    connection.execute(
+                        "SELECT COUNT(*) FROM (SELECT 1 FROM categories LIMIT ?)",
+                        (MAX_CATEGORIES + 1,),
+                    ).fetchone()[0]
+                    if has_categories is not None
+                    else 0
+                )
+                if credential_count > MAX_CREDENTIALS:
+                    raise BackupLimitError(
+                        f"O arquivo excede o limite de {MAX_CREDENTIALS} credenciais."
+                    )
+                if category_count > MAX_CATEGORIES:
+                    raise BackupLimitError(
+                        f"O arquivo excede o limite de {MAX_CATEGORIES} categorias."
+                    )
+                largest_credential = connection.execute(
+                    "SELECT COALESCE(MAX(length(payload_ciphertext)), 0) FROM credentials"
+                ).fetchone()[0]
+                largest_category = (
+                    connection.execute(
+                        "SELECT COALESCE(MAX(length(payload_ciphertext)), 0) FROM categories"
+                    ).fetchone()[0]
+                    if has_categories is not None
+                    else 0
+                )
+                if largest_credential > MAX_CREDENTIAL_CIPHERTEXT_BYTES:
+                    raise BackupLimitError(
+                        "O arquivo contém uma credencial maior que o limite permitido."
+                    )
+                if largest_category > MAX_CATEGORY_CIPHERTEXT_BYTES:
+                    raise BackupLimitError(
+                        "O arquivo contém uma categoria maior que o limite permitido."
+                    )
+        except BackupLimitError:
+            raise
+        except (OSError, sqlite3.DatabaseError, TypeError, ValueError) as exc:
+            raise BackupError("O arquivo não possui uma estrutura de cofre válida.") from exc
 
     @staticmethod
     def _same_path(first: Path, second: Path) -> bool:

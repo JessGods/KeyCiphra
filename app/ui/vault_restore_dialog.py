@@ -51,6 +51,11 @@ class VaultRestoreDialog(QDialog):
     def master_password(self) -> str:
         return self._password.text()
 
+    def clear_secrets(self) -> None:
+        self._password.clear()
+        self._password_visible = False
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 8, 18, 18)

@@ -31,6 +31,21 @@ def test_posix_permissions_are_restricted_recursively(tmp_path: Path) -> None:
     assert stat.S_IMODE(child_file.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Links POSIX não são criados no Windows.")
+def test_posix_rejects_symlink_without_changing_external_target(tmp_path: Path) -> None:
+    private = tmp_path / "KeyCiphra"
+    private.mkdir()
+    external = tmp_path / "external.txt"
+    external.write_text("conteudo-ficticio", encoding="utf-8")
+    external.chmod(0o644)
+    (private / "external-link").symlink_to(external)
+
+    with pytest.raises(PrivateStoragePermissionError):
+        secure_private_directory(private, platform_name="linux")
+
+    assert stat.S_IMODE(external.stat().st_mode) == 0o644
+
+
 def test_windows_uses_absolute_icacls_and_only_expected_sids(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

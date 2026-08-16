@@ -18,6 +18,11 @@ from app.security.file_permissions import (
     PrivateStoragePermissionError,
     secure_private_directory,
 )
+from app.security.instance_lock import (
+    ApplicationAlreadyRunningError,
+    acquire_instance_lock,
+)
+from app.security.windows_session import WindowsSessionMonitor
 from app.services.backup_service import BackupError, BackupService
 from app.services.category_service import CategoryService
 from app.services.clipboard_service import ClipboardService
@@ -41,6 +46,7 @@ from app.utils.paths import (
     ARCHIVED_VAULTS_DIRECTORY,
     BACKUP_DIRECTORY,
     DEFAULT_VAULT_PATH,
+    INSTANCE_LOCK_PATH,
     LEGACY_BACKUP_DIRECTORY,
     LEGACY_VAULT_PATH,
     LOG_DIRECTORY,
@@ -619,6 +625,16 @@ class ApplicationController:
         )
         self._main_window.lock_vault()
 
+    def handle_system_session_lock(self) -> None:
+        """Bloqueia o cofre assim que o Windows bloqueia ou desconecta a sessão."""
+        if self._main_window is None:
+            return
+        get_logger().info("vault.system_session_locked")
+        self._pending_login_notice = (
+            "Cofre bloqueado porque a sessão do Windows foi bloqueada ou desconectada."
+        )
+        self._main_window.lock_vault()
+
     def _handle_vault_restored(self, notice: str) -> None:
         get_logger().info("vault.restored")
         self._pending_login_notice = notice
@@ -693,6 +709,16 @@ def main() -> int:
         secure_private_directory(APPLICATION_DATA_DIRECTORY)
     except PrivateStoragePermissionError as exc:
         permission_error = exc
+    try:
+        instance_lock = acquire_instance_lock(INSTANCE_LOCK_PATH)
+    except ApplicationAlreadyRunningError:
+        MessageDialog.warning(
+            None,
+            "O KeyCiphra já está aberto neste usuário.",
+            title="Aplicativo já em execução",
+            detail="Use a janela existente para evitar alterações simultâneas nos cofres.",
+        )
+        return 2
     try:
         logger = configure_logging(LOG_DIRECTORY)
         logger.info("application.start")
@@ -777,7 +803,11 @@ def main() -> int:
         initial_notice=" ".join(startup_notices) or None,
     )
     interrupt_poller = install_graceful_interrupt_handler(application)
+    session_monitor = WindowsSessionMonitor(application)
+    session_monitor.session_locked.connect(controller.handle_system_session_lock)
     application.aboutToQuit.connect(controller.shutdown)
+    application.aboutToQuit.connect(session_monitor.close)
+    application.aboutToQuit.connect(instance_lock.unlock)
     controller.start()
     if SMOKE_TEST_ARGUMENT in sys.argv:
         QTimer.singleShot(750, application.quit)
@@ -789,6 +819,8 @@ def main() -> int:
         return 130
     finally:
         interrupt_poller.stop()
+        session_monitor.close()
+        instance_lock.unlock()
 
 
 if __name__ == "__main__":

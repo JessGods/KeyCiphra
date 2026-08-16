@@ -1,6 +1,6 @@
 #define MyAppName "KeyCiphra"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.9.0"
+  #define MyAppVersion "0.9.1"
 #endif
 #define MyAppPublisher "KeyCiphra"
 #define MyAppExeName "KeyCiphra.exe"

@@ -12,7 +12,7 @@ winget install --id JRSoftware.InnoSetup -e --source winget
 .\build-installer.ps1
 ```
 
-O resultado é `dist\KeyCiphra-Setup-0.9.0.exe`, acompanhado de um arquivo
+O resultado é `dist\KeyCiphra-Setup-0.9.1.exe`, acompanhado de um arquivo
 `.sha256`. Uma versão mais nova usa o mesmo `AppId` e substitui apenas os
 arquivos do programa. O instalador pede para fechar o KeyCiphra antes da troca;
 ele nunca deve ser executado com um cofre desbloqueado.
@@ -27,17 +27,9 @@ confirma que a área de dados não foi removida:
 ## Assinatura Authenticode
 
 O certificado de assinatura nunca deve ser armazenado no repositório. Instale
-o Windows SDK (que fornece `signtool.exe`) e defina uma destas opções somente na
+o Windows SDK (que fornece `signtool.exe`) e importe o certificado no repositório
+de certificados do usuário do Windows. Depois, defina somente o thumbprint na
 sessão protegida que gera a versão:
-
-```powershell
-$env:KEYCIPHRA_SIGN_CERTIFICATE_PATH = "C:\caminho-protegido\certificado.pfx"
-$env:KEYCIPHRA_SIGN_CERTIFICATE_PASSWORD = "senha-do-certificado"
-.\build-installer.ps1 -Sign
-```
-
-Ou utilize um certificado já presente no repositório de certificados do
-Windows:
 
 ```powershell
 $env:KEYCIPHRA_SIGN_CERTIFICATE_THUMBPRINT = "THUMBPRINT"
@@ -47,7 +39,9 @@ $env:KEYCIPHRA_SIGN_CERTIFICATE_THUMBPRINT = "THUMBPRINT"
 O script assina e verifica primeiro o executável e depois o instalador, usando
 SHA-256 e carimbo de tempo. Sem um certificado de uma autoridade confiável, o
 Windows continuará exibindo **Editor desconhecido**; isso é esperado e não deve
-ser contornado com um certificado ou chave incluídos no programa.
+ser contornado com um certificado ou chave incluídos no programa. O fluxo não
+aceita senha de PFX por variável porque o SignTool a exporia na linha de comando
+do processo.
 
 ## Processo de atualização
 
@@ -62,9 +56,9 @@ O gerador abaixo prepara o manifesto de um futuro canal público HTTPS:
 
 ```powershell
 .\.venv\Scripts\python.exe packaging\create_release_manifest.py `
-  dist\KeyCiphra-Setup-0.9.0.exe `
-  --version 0.9.0 `
-  --base-url https://downloads.exemplo/keyciphra/v0.9.0/ `
+  dist\KeyCiphra-Setup-0.9.1.exe `
+  --version 0.9.1 `
+  --base-url https://downloads.exemplo/keyciphra/v0.9.1/ `
   --output dist\release-manifest.json
 ```
 

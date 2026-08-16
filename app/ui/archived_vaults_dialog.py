@@ -169,9 +169,9 @@ class ArchivedVaultsDialog(QDialog):
         if archive is None:
             return
         dialog = RestoreArchivedVaultDialog(archive.vault.name, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
         try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
             restored = self._service.restore_archived(
                 archive.archive_key,
                 dialog.vault_name,
@@ -192,6 +192,7 @@ class ArchivedVaultsDialog(QDialog):
             return
         finally:
             dialog.clear_secrets()
+            dialog.deleteLater()
         get_logger().info("vault.archive_restored")
         self._restored = restored
         self.accept()

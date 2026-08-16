@@ -7,12 +7,15 @@ from app.models.release_manifest import InvalidReleaseManifest, ReleaseManifest
 from app.utils.release_artifacts import build_manifest
 from app.version import APP_VERSION
 
+ALLOWED_HOSTS = frozenset({"downloads.example.invalid"})
+
 
 def test_release_manifest_accepts_secure_newer_version() -> None:
     manifest = ReleaseManifest.from_json(
         '{"schema_version":1,"version":"0.9.0",'
         '"installer_url":"https://downloads.example.invalid/KeyCiphra.exe",'
-        '"installer_sha256":"' + ("a" * 64) + '"}'
+        '"installer_sha256":"' + ("a" * 64) + '"}',
+        allowed_hosts=ALLOWED_HOSTS,
     )
 
     assert manifest.is_newer_than("0.8.0")
@@ -33,7 +36,18 @@ def test_release_manifest_rejects_unsafe_installer_url(url: str) -> None:
         f'"installer_url":"{url}","installer_sha256":"' + ("a" * 64) + '"}'
     )
     with pytest.raises(InvalidReleaseManifest):
-        ReleaseManifest.from_json(document)
+        ReleaseManifest.from_json(document, allowed_hosts=ALLOWED_HOSTS)
+
+
+def test_release_manifest_rejects_unpinned_https_host() -> None:
+    document = (
+        '{"schema_version":1,"version":"0.9.0",'
+        '"installer_url":"https://attacker.example.invalid/KeyCiphra.exe",'
+        '"installer_sha256":"' + ("a" * 64) + '"}'
+    )
+
+    with pytest.raises(InvalidReleaseManifest):
+        ReleaseManifest.from_json(document, allowed_hosts=ALLOWED_HOSTS)
 
 
 def test_manifest_generator_hashes_the_final_artifact(tmp_path: Path) -> None:
