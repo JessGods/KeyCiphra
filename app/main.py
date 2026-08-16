@@ -48,6 +48,7 @@ from app.utils.paths import (
     SETTINGS_PATH,
     VAULT_CATALOG_PATH,
 )
+from app.version import APP_VERSION
 
 SIGNAL_POLL_INTERVAL_MS = 200
 WINDOWS_APP_USER_MODEL_ID = "KeyCiphra.Desktop"
@@ -678,6 +679,7 @@ def main() -> int:
     application = QApplication(sys.argv)
     application.setApplicationName("KeyCiphra")
     application.setApplicationDisplayName("KeyCiphra")
+    application.setApplicationVersion(APP_VERSION)
     application.setStyle("Fusion")
     application.setStyleSheet(APP_STYLESHEET)
     application.setWindowIcon(

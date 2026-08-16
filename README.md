@@ -31,7 +31,7 @@ já possui núcleo criptográfico, persistência SQLite e interface PySide6.
 - Permissões da pasta privada restritas ao usuário, SYSTEM e administradores no Windows.
 - Migrações incrementais e transacionais do schema após autenticação do cofre.
 - Auditoria contínua no GitHub Actions para Windows e Linux.
-- Executável portátil preparado com ícone e metadados próprios do KeyCiphra.
+- Executável portátil e instalador por usuário preparados com ícone e metadados próprios do KeyCiphra.
 - Configuração de bloqueio, clipboard e retenção com limites seguros.
 - Logs técnicos rotativos com sanitização defensiva de segredos.
 - Testes de persistência após reabertura, CRUD, adulteração e ausência de
@@ -122,7 +122,7 @@ No Windows, o caminho completo usado em produção é
 guardavam dados na raiz do projeto são migradas por cópia no primeiro início;
 os arquivos antigos não são apagados automaticamente.
 
-## Gerar o executável do Windows
+## Gerar o executável e o instalador do Windows
 
 Instale as dependências de desenvolvimento e execute o build:
 
@@ -132,7 +132,16 @@ python -m pip install -r requirements-dev.txt
 ```
 
 O resultado será `dist\KeyCiphra.exe`, sem janela de terminal e com o ícone do
-produto. O build atual é portátil e ainda não constitui um instalador assinado.
+produto. Para criar o instalador por usuário:
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e --source winget
+.\build-installer.ps1
+```
+
+O resultado será `dist\KeyCiphra-Setup-0.9.0.exe`. A instalação e a
+desinstalação preservam todos os cofres e backups. O processo de assinatura,
+atualização e publicação está detalhado em [`DISTRIBUTION.md`](DISTRIBUTION.md).
 
 ## Arquitetura atual
 
@@ -289,5 +298,8 @@ outros modelos de processador devem ser medidos antes de definir requisitos mín
    arquivamento autenticado e backups isolados (concluído).
 10. Recuperação temática, autenticada e transacional de cofres arquivados,
     incluindo compatibilidade com a versão 0.7.0 (concluído).
-11. Instalador do Windows, assinatura de código e processo de atualização
-    (próximo ciclo proposto).
+11. Instalador por usuário, preparação de assinatura Authenticode e processo de
+    atualização preservando os cofres (ciclo interno concluído); certificado de
+    editor confiável e canal público de releases ainda pendentes.
+12. Beta controlado, revisão independente de segurança e documentação de uso
+    para usuários finais (próximo ciclo proposto).

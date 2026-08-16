@@ -9,10 +9,10 @@ if (-not (Test-Path -LiteralPath $PythonPath)) {
     throw "Ambiente virtual não encontrado. Instale requirements-dev.txt."
 }
 
-& $RuffPath check app tests run.py
+& $RuffPath check app packaging tests run.py
 if ($LASTEXITCODE -ne 0) { throw "Ruff encontrou problemas." }
 
-& $BanditPath -r app run.py -q
+& $BanditPath -r app packaging run.py -q
 if ($LASTEXITCODE -ne 0) { throw "Bandit encontrou um possível problema de segurança." }
 
 & $PythonPath -m pip_audit -r requirements.txt --progress-spinner off
